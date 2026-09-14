@@ -1,0 +1,2543 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kinetic Type — Edit Deck</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Archivo:wght@500;600;700&family=Archivo+Black&family=Bebas+Neue&family=Oswald:wght@500;700&family=Syne:wght@700;800&family=Playfair+Display:ital,wght@1,900&family=Space+Grotesk:wght@500;700&family=Inter:wght@600;900&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0A0C13; --panel:#11141E; --panel-2:#171B28; --line:#242A3B; --line-2:#333A50;
+    --bone:#E9E7E2; --dim:#8A90A6;
+    --hot:#FF4A17; --field:#1433C4; --ink:#0B0E1C;
+    --ok:#39D98A; --warn:#FFC24A; --bad:#FF5A5A; --spot:#1DB954;
+    --r:4px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:var(--bg);color:var(--bone);
+    font-family:'Archivo',system-ui,-apple-system,sans-serif;font-weight:500;font-size:13px;
+    -webkit-font-smoothing:antialiased;
+  }
+  ::selection{background:var(--hot);color:#14060a}
+
+  .app{display:grid;grid-template-columns:minmax(0,1fr) 392px;gap:0;height:100vh;height:100dvh}
+  .left{display:flex;flex-direction:column;min-width:0;border-right:1px solid var(--line);overflow:hidden}
+  .right{display:flex;flex-direction:column;min-width:0;background:var(--panel);overflow:hidden}
+
+  /* ---------- stage ---------- */
+  .stagewrap{
+    flex:1;min-height:0;display:flex;align-items:center;justify-content:center;
+    padding:18px;position:relative;
+    background:
+      linear-gradient(0deg,rgba(0,0,0,.35),rgba(0,0,0,.35)),
+      repeating-conic-gradient(#0E1018 0% 25%,#0B0D14 0% 50%) 50%/22px 22px;
+  }
+  canvas#stage{
+    max-width:100%;max-height:100%;display:block;
+    box-shadow:0 24px 70px rgba(0,0,0,.65);border-radius:3px;background:#000;
+    touch-action:none;
+  }
+  .hud{
+    position:absolute;top:22px;left:22px;right:22px;display:flex;gap:8px;
+    pointer-events:none;font-size:10.5px;letter-spacing:.12em;font-weight:700;text-transform:uppercase;
+  }
+  .hud .tag{background:rgba(10,12,19,.82);border:1px solid var(--line);padding:4px 8px;border-radius:3px;color:var(--dim)}
+  .hud .tag b{color:var(--bone);font-weight:700}
+  .hud .rec{color:var(--bad);border-color:var(--bad);animation:blink 1s steps(2) infinite}
+  @keyframes blink{50%{opacity:.35}}
+
+  /* ---------- transport ---------- */
+  .transport{border-top:1px solid var(--line);background:var(--panel);padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+  .tl{position:relative;height:64px;background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;cursor:crosshair;touch-action:none}
+  canvas#tlc{position:absolute;inset:0;width:100%;height:100%;display:block}
+  .trow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .clock{font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:12px;color:var(--dim);font-variant-numeric:tabular-nums;white-space:nowrap}
+  .clock b{color:var(--bone);font-weight:600}
+
+  /* ---------- controls ---------- */
+  button,.btn{
+    font-family:inherit;font-weight:700;font-size:12px;color:var(--bone);
+    background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r);
+    padding:9px 11px;cursor:pointer;text-align:center;white-space:nowrap;
+    transition:background .12s,border-color .12s,color .12s;display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  }
+  button:hover:not(:disabled),.btn:hover{background:#212637;border-color:var(--line-2)}
+  button:focus-visible,.btn:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--hot);outline-offset:1px}
+  button.primary{background:var(--hot);border-color:var(--hot);color:#180702}
+  button.primary:hover:not(:disabled){background:#ff5e31}
+  button.armed{background:var(--bone);border-color:var(--bone);color:var(--ink)}
+  button.rec{background:var(--bad);border-color:var(--bad);color:#1a0505}
+  button.spot{background:var(--spot);border-color:var(--spot);color:#04210f}
+  button:disabled{opacity:.35;cursor:not-allowed}
+  button.wide{flex:1}
+  button.sm{padding:6px 8px;font-size:11px}
+  input[type=file]{display:none}
+
+  select,input[type=text],input[type=number]{
+    background:var(--panel-2);color:var(--bone);border:1px solid var(--line);border-radius:var(--r);
+    padding:9px 8px;font-family:inherit;font-weight:600;font-size:12px;min-width:0;width:100%;
+  }
+  input[type=color]{width:34px;height:34px;padding:2px;background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r);cursor:pointer}
+  input[type=range]{width:100%;accent-color:var(--hot);background:transparent}
+
+  textarea{
+    width:100%;min-height:150px;background:var(--panel-2);color:var(--bone);
+    border:1px solid var(--line);border-radius:var(--r);padding:10px;
+    font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:11.5px;line-height:1.7;resize:vertical;
+  }
+  textarea:focus{outline:none;border-color:var(--hot)}
+
+  /* ---------- panel layout ---------- */
+  .tabs{display:flex;border-bottom:1px solid var(--line);background:var(--panel);flex:0 0 auto;overflow-x:auto;scrollbar-width:none}
+  .tabs::-webkit-scrollbar{display:none}
+  .tabs button{
+    flex:1;border:0;border-radius:0;background:transparent;color:var(--dim);
+    padding:13px 6px;font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;border-bottom:2px solid transparent;
+  }
+  .tabs button:hover{background:var(--panel-2);color:var(--bone)}
+  .tabs button.on{color:var(--bone);border-bottom-color:var(--hot);background:transparent}
+  .pane{flex:1;min-height:0;overflow-y:auto;padding:14px;display:none;flex-direction:column;gap:14px}
+  .pane.on{display:flex}
+  .pane::-webkit-scrollbar{width:9px}
+  .pane::-webkit-scrollbar-thumb{background:var(--line);border-radius:9px}
+
+  .grp{display:flex;flex-direction:column;gap:9px}
+  .grp>h4{
+    font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);font-weight:700;
+    display:flex;align-items:center;gap:8px;
+  }
+  .grp>h4::after{content:"";flex:1;height:1px;background:var(--line)}
+  .r{display:flex;gap:8px;align-items:center}
+  .r>*{flex:1}
+  .r>.fix{flex:0 0 auto}
+  .lab{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);font-weight:700;display:flex;justify-content:space-between;gap:8px}
+  .lab b{color:var(--bone);font-variant-numeric:tabular-nums;font-weight:600;letter-spacing:0;text-transform:none}
+  .fld{display:flex;flex-direction:column;gap:5px}
+  .hint{font-size:11px;color:var(--dim);line-height:1.6}
+  .hint code{font-family:ui-monospace,Menlo,monospace;background:var(--panel-2);padding:1px 4px;border-radius:3px;color:var(--bone);font-size:10.5px;word-break:break-all}
+
+  .chips{display:flex;flex-wrap:wrap;gap:6px}
+  .chip{
+    font-size:11px;font-weight:700;padding:6px 9px;border-radius:20px;cursor:pointer;
+    background:var(--panel-2);border:1px solid var(--line);color:var(--dim);user-select:none;
+  }
+  .chip:hover{color:var(--bone);border-color:var(--line-2)}
+  .chip.on{background:var(--bone);border-color:var(--bone);color:var(--ink)}
+  .chip.on.hot{background:var(--hot);border-color:var(--hot);color:#180702}
+
+  /* ---------- line editor rows ---------- */
+  .lines{display:flex;flex-direction:column;gap:4px;max-height:340px;overflow-y:auto;padding-right:2px}
+  .lrow{
+    display:grid;grid-template-columns:52px 46px minmax(0,1fr) 26px;gap:5px;align-items:center;
+    background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r);padding:5px;
+  }
+  .lrow.on{border-color:var(--hot)}
+  .lrow input{padding:5px 5px;font-size:11px;font-family:ui-monospace,Menlo,monospace}
+  .lrow input.txt{font-family:inherit;font-weight:600}
+  .lrow .go{cursor:pointer;color:var(--dim);text-align:center;font-size:11px;font-weight:700;padding:5px 0;border-radius:3px}
+  .lrow .go:hover{background:var(--line);color:var(--bone)}
+
+  /* ---------- media thumbs ---------- */
+  .thumbs{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+  .thumb{position:relative;aspect-ratio:1;border-radius:3px;overflow:hidden;border:1px solid var(--line);background:var(--panel-2);cursor:grab}
+  .thumb img,.thumb video{width:100%;height:100%;object-fit:cover;display:block;pointer-events:none}
+  .thumb .x{position:absolute;top:2px;right:2px;background:rgba(0,0,0,.72);color:#fff;border-radius:3px;font-size:10px;line-height:1;padding:3px 4px;cursor:pointer;font-weight:700}
+  .thumb .n{position:absolute;bottom:0;left:0;background:rgba(0,0,0,.72);color:var(--bone);font-size:9px;padding:1px 4px;font-weight:700}
+  .drop{border:1px dashed var(--line-2);border-radius:var(--r);padding:16px;text-align:center;color:var(--dim);font-size:11.5px;line-height:1.6}
+  .drop.hot{border-color:var(--hot);color:var(--bone);background:rgba(255,74,23,.06)}
+
+  /* ---------- diagnostics ---------- */
+  .diag{
+    border-top:1px solid var(--line);background:var(--panel);flex:0 0 auto;
+    font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:11px;line-height:1.7;
+    max-height:176px;overflow-y:auto;padding:9px 12px;
+  }
+  .diag .d{display:flex;justify-content:space-between;gap:12px;color:var(--dim)}
+  .diag .d span:last-child{text-align:right;color:var(--bone);word-break:break-word}
+  .s-ok{color:var(--ok)!important}.s-warn{color:var(--warn)!important}.s-bad{color:var(--bad)!important}
+  .diag .msg{display:block;margin-top:6px;padding-top:6px;border-top:1px solid var(--line);color:var(--dim);white-space:pre-wrap}
+
+  .bar{display:flex;gap:8px;padding:9px 12px;border-bottom:1px solid var(--line);align-items:center;background:var(--panel);flex:0 0 auto}
+  .bar .brand{font-family:'Anton',Impact,sans-serif;font-size:15px;letter-spacing:.02em;text-transform:uppercase;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bar .brand i{color:var(--hot);font-style:normal}
+
+  @media (max-width:900px){
+    .app{grid-template-columns:1fr;height:auto;min-height:100dvh}
+    .left{border-right:0;border-bottom:1px solid var(--line)}
+    .stagewrap{padding:12px;min-height:56dvh}
+    .right{min-height:60dvh}
+    .pane{max-height:none}
+  }
+  @media (prefers-reduced-motion:reduce){ .hud .rec{animation:none} }
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ======================= LEFT : STAGE ======================= -->
+  <div class="left">
+    <div class="stagewrap" id="stagewrap">
+      <canvas id="stage" width="1080" height="1920"></canvas>
+      <div class="hud">
+        <span class="tag" id="h-ratio">9:16 · <b>1080×1920</b></span>
+        <span class="tag" id="h-line">line <b>—</b></span>
+        <span class="tag" id="h-fps">—</span>
+        <span class="tag rec" id="h-rec" hidden>● REC</span>
+      </div>
+    </div>
+
+    <div class="transport">
+      <div class="tl" id="tl"><canvas id="tlc"></canvas></div>
+      <div class="trow">
+        <button id="play" class="primary fix" style="min-width:84px">▶ Play</button>
+        <button id="stop" class="fix sm">■</button>
+        <button id="tap" class="fix">Tap to time</button>
+        <button id="mark" class="fix sm" title="Set in / out points to the visible line">In/Out</button>
+        <span class="clock" id="clock"><b>0:00.00</b> / 0:00.00</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================= RIGHT : PANEL ======================= -->
+  <div class="right">
+    <div class="bar">
+      <span class="brand">KINETIC <i>TYPE</i></span>
+      <button id="undo" class="sm fix" title="Undo (Ctrl+Z)">↺</button>
+      <button id="help" class="sm fix" title="Keyboard shortcuts">?</button>
+    </div>
+
+    <div class="tabs" id="tabs">
+      <button data-p="type" class="on">Type</button>
+      <button data-p="image">Image</button>
+      <button data-p="audio">Audio</button>
+      <button data-p="lines">Lines</button>
+      <button data-p="out">Export</button>
+    </div>
+
+    <!-- ---------------- TYPE ---------------- -->
+    <div class="pane on" data-pane="type">
+      <div class="grp">
+        <h4>Animation</h4>
+        <div class="chips" id="anims"></div>
+      </div>
+
+      <div class="grp">
+        <h4>Timing feel</h4>
+        <div class="fld"><span class="lab">Word stagger <b id="v-stag">60ms</b></span>
+          <input type="range" id="stag" min="0" max="200" step="5" value="60"></div>
+        <div class="fld"><span class="lab">In duration <b id="v-indur">0.34s</b></span>
+          <input type="range" id="indur" min="0.08" max="1.2" step="0.02" value="0.34"></div>
+        <div class="fld"><span class="lab">Out duration <b id="v-outdur">0.18s</b></span>
+          <input type="range" id="outdur" min="0" max="1" step="0.02" value="0.18"></div>
+      </div>
+
+      <div class="grp">
+        <h4>Face</h4>
+        <select id="font"></select>
+        <div class="fld"><span class="lab">Size <b id="v-size">112</b></span>
+          <input type="range" id="size" min="40" max="240" step="1" value="112"></div>
+        <div class="fld"><span class="lab">Tracking <b id="v-track">-1.5%</b></span>
+          <input type="range" id="track" min="-8" max="25" step="0.5" value="-1.5"></div>
+        <div class="fld"><span class="lab">Line height <b id="v-lh">0.94</b></span>
+          <input type="range" id="lh" min="0.7" max="1.6" step="0.01" value="0.94"></div>
+        <div class="r">
+          <select id="case"><option value="upper">UPPERCASE</option><option value="as">As typed</option><option value="lower">lowercase</option><option value="title">Title Case</option></select>
+          <select id="align"><option value="center">Centre</option><option value="left">Left</option><option value="right">Right</option></select>
+        </div>
+        <div class="fld"><span class="lab">Vertical position <b id="v-posy">50%</b></span>
+          <input type="range" id="posy" min="8" max="92" step="1" value="50"></div>
+        <div class="fld"><span class="lab">Side margin <b id="v-margin">9%</b></span>
+          <input type="range" id="margin" min="2" max="28" step="1" value="9"></div>
+      </div>
+
+      <div class="grp">
+        <h4>Treatment</h4>
+        <div class="chips" id="treats">
+          <span class="chip on" data-t="none">Clean</span>
+          <span class="chip" data-t="shadow">Shadow</span>
+          <span class="chip" data-t="outline">Outline</span>
+          <span class="chip" data-t="plate">Plate</span>
+          <span class="chip" data-t="knock">Knockout</span>
+        </div>
+        <div class="r">
+          <span class="fix" style="flex:0 0 auto"><input type="color" id="c-text" value="#F2EDE4"></span>
+          <span class="lab" style="align-items:center">Text</span>
+          <span class="fix" style="flex:0 0 auto"><input type="color" id="c-hit" value="#FF4A17"></span>
+          <span class="lab" style="align-items:center">Accent</span>
+        </div>
+        <div class="fld"><span class="lab">Accent word</span>
+          <select id="hitmode">
+            <option value="long">Longest word in the line</option>
+            <option value="mark">Only words wrapped in *stars*</option>
+            <option value="none">None — one colour</option>
+            <option value="all">Every word</option>
+            <option value="first">First word</option>
+            <option value="last">Last word</option>
+          </select></div>
+      </div>
+    </div>
+
+    <!-- ---------------- IMAGE ---------------- -->
+    <div class="pane" data-pane="image">
+      <div class="grp">
+        <h4>Plates</h4>
+        <label class="drop" id="drop" for="imgin">
+          Drop images or a video clip here<br><span style="opacity:.6">or click to browse — jpg, png, webp, gif, mp4, webm</span>
+        </label>
+        <input type="file" id="imgin" accept="image/*,video/mp4,video/webm,video/quicktime" multiple>
+        <div class="thumbs" id="thumbs"></div>
+        <div class="r">
+          <button id="artbg" class="sm">Use Spotify art</button>
+          <button id="clearimg" class="sm">Remove all</button>
+        </div>
+      </div>
+
+      <div class="grp">
+        <h4>Assignment</h4>
+        <select id="bgmode">
+          <option value="single">One plate for the whole track</option>
+          <option value="line">Change on every line</option>
+          <option value="interval">Change every N seconds</option>
+          <option value="section">Change on blank-line sections</option>
+        </select>
+        <div class="fld" id="everywrap"><span class="lab">Every <b id="v-every">4.0s</b></span>
+          <input type="range" id="every" min="0.25" max="16" step="0.25" value="4"></div>
+        <div class="fld"><span class="lab">Crossfade <b id="v-fade">0.30s</b></span>
+          <input type="range" id="fade" min="0" max="1.5" step="0.05" value="0.3"></div>
+        <select id="fit"><option value="cover">Cover — fill the frame</option><option value="contain">Contain — blurred fill behind</option><option value="stretch">Stretch to fit</option></select>
+      </div>
+
+      <div class="grp">
+        <h4>Motion</h4>
+        <select id="kb">
+          <option value="none">Still</option>
+          <option value="in">Slow zoom in</option>
+          <option value="out">Slow zoom out</option>
+          <option value="left">Pan left</option>
+          <option value="right">Pan right</option>
+          <option value="drift">Drift — zoom and pan</option>
+          <option value="sway">Sway — gentle rock</option>
+        </select>
+        <div class="fld"><span class="lab">Motion amount <b id="v-kbamt">14%</b></span>
+          <input type="range" id="kbamt" min="0" max="60" step="1" value="14"></div>
+        <div class="fld"><span class="lab">Beat pulse <b id="v-pulse">0%</b></span>
+          <input type="range" id="pulse" min="0" max="60" step="1" value="0"></div>
+        <div class="fld"><span class="lab">Shake on hit <b id="v-shake">0%</b></span>
+          <input type="range" id="shake" min="0" max="40" step="1" value="0"></div>
+      </div>
+
+      <div class="grp">
+        <h4>Grade</h4>
+        <div class="chips" id="grades"></div>
+        <div class="fld"><span class="lab">Exposure <b id="v-expo">100%</b></span>
+          <input type="range" id="expo" min="30" max="180" step="1" value="100"></div>
+        <div class="fld"><span class="lab">Contrast <b id="v-contr">100%</b></span>
+          <input type="range" id="contr" min="40" max="220" step="1" value="100"></div>
+        <div class="fld"><span class="lab">Saturation <b id="v-sat">100%</b></span>
+          <input type="range" id="sat" min="0" max="220" step="1" value="100"></div>
+        <div class="fld"><span class="lab">Blur <b id="v-iblur">0px</b></span>
+          <input type="range" id="iblur" min="0" max="40" step="1" value="0"></div>
+        <div class="r">
+          <span class="fix"><input type="color" id="c-tint" value="#1433C4"></span>
+          <div class="fld" style="flex:1"><span class="lab">Tint <b id="v-tintamt">0%</b></span>
+            <input type="range" id="tintamt" min="0" max="100" step="1" value="0"></div>
+        </div>
+        <div class="fld"><span class="lab">Vignette <b id="v-vig">45%</b></span>
+          <input type="range" id="vig" min="0" max="100" step="1" value="45"></div>
+        <div class="fld"><span class="lab">Grain <b id="v-grain">16%</b></span>
+          <input type="range" id="grain" min="0" max="60" step="1" value="16"></div>
+        <div class="r">
+          <span class="fix"><input type="color" id="c-bg" value="#1433C4"></span>
+          <span class="lab" style="align-items:center">Backdrop when there is no plate</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ---------------- AUDIO ---------------- -->
+    <div class="pane" data-pane="audio">
+      <div class="grp">
+        <h4>Clock</h4>
+        <select id="clocksrc">
+          <option value="auto">Auto — whatever is loaded</option>
+          <option value="file">Local file</option>
+          <option value="spotify">Spotify playback position</option>
+          <option value="free">Free running (no audio)</option>
+        </select>
+        <p class="hint" id="clockhint"></p>
+      </div>
+
+      <div class="grp">
+        <h4>Local file</h4>
+        <div class="r">
+          <label class="btn wide" for="audiofile">Load track</label>
+          <input type="file" id="audiofile" accept="audio/*,.mp3,.m4a,.wav,.ogg,.flac">
+          <button id="dropaudio" class="fix sm">Eject</button>
+        </div>
+        <p class="hint">The only source that is seekable, analysable and exportable with sound. Anything you own as a file — a rip, a bounce, a voice memo — works here.</p>
+      </div>
+
+      <div class="grp">
+        <h4>Live capture</h4>
+        <div class="r">
+          <button id="captab" class="wide">Capture tab audio</button>
+          <button id="capmic" class="fix">Mic</button>
+        </div>
+        <button id="capstop" class="sm" disabled>Stop capture</button>
+        <p class="hint">Chrome or Edge on desktop: pick the <b>Spotify tab</b> and tick <b>Share tab audio</b>. That stream is real PCM — it drives the meter, the beat pulse, and it gets mixed into the export. Firefox and Safari cannot share tab audio; use the mic there.</p>
+        <div class="fld"><span class="lab">Level <b id="v-level">—</b></span>
+          <input type="range" id="meter" min="0" max="100" value="0" disabled></div>
+      </div>
+
+      <div class="grp">
+        <h4>Spotify</h4>
+        <div class="fld"><span class="lab">Client ID</span>
+          <input type="text" id="spid" placeholder="paste from developer.spotify.com" spellcheck="false" autocomplete="off"></div>
+        <p class="hint">Add this exact redirect URI to your app in the Spotify dashboard:<br><code id="spuri">—</code></p>
+        <div class="r">
+          <button id="spconnect" class="spot wide">Connect Spotify</button>
+          <button id="splogout" class="fix sm">Sign out</button>
+        </div>
+        <div class="r">
+          <button id="spprev" class="sm">⏮</button>
+          <button id="spplay" class="sm">⏯</button>
+          <button id="spnext" class="sm">⏭</button>
+          <button id="spsync" class="sm">Re-sync</button>
+        </div>
+        <div class="fld"><span class="lab">Offset <b id="v-spoff">0ms</b></span>
+          <input type="range" id="spoff" min="-1000" max="1000" step="10" value="0"></div>
+        <p class="hint" id="sphint">Spotify's stream is encrypted — no browser can decode it. So Spotify drives the <b>clock</b> and hands over the <b>artwork</b>; pair it with tab capture above if you also want the waveform and the export to carry sound.</p>
+      </div>
+
+      <div class="grp">
+        <h4>Analysis</h4>
+        <div class="r">
+          <button id="detect" class="wide" disabled>Detect beats</button>
+          <button id="taptempo" class="fix">Tap tempo</button>
+        </div>
+        <div class="r">
+          <span class="chip" id="snapchip">Snap to beat</span>
+          <span class="chip" id="gridchip">Show grid</span>
+        </div>
+        <p class="hint" id="bpmhint">No tempo yet. Load a local file and hit Detect beats, or tap the tempo by hand.</p>
+      </div>
+    </div>
+
+    <!-- ---------------- LINES ---------------- -->
+    <div class="pane" data-pane="lines">
+      <div class="grp">
+        <h4>Script</h4>
+        <textarea id="script" spellcheck="false" autocapitalize="off" autocorrect="off"></textarea>
+        <p class="hint">One card per row. <code>start | duration | text</code>, or just the words and let the timing come later. <code>[Chorus]</code> and <code>(intro)</code> rows are dropped. Wrap a word in <code>*stars*</code> to hit it with the accent colour. <code>//</code> forces a line break inside a card.</p>
+      </div>
+
+      <div class="grp">
+        <h4>Reshape</h4>
+        <div class="r">
+          <button id="split" class="wide">Split long lines</button>
+          <input type="number" id="perline" min="2" max="12" value="5" class="fix" style="max-width:62px">
+        </div>
+        <div class="r">
+          <button id="retime" class="wide">Space evenly</button>
+          <button id="fillgaps" class="wide">Close gaps</button>
+        </div>
+        <div class="r">
+          <button id="snapbeats" class="wide" disabled>Snap to beats</button>
+          <button id="clear" class="wide">Strip timings</button>
+        </div>
+        <div class="r">
+          <button id="lrcin" class="wide">Import .lrc</button>
+          <input type="file" id="lrcfile" accept=".lrc,text/plain">
+          <button id="lrcout" class="wide">Export .lrc</button>
+        </div>
+      </div>
+
+      <div class="grp">
+        <h4>Cards <span id="lcount" style="color:var(--dim);font-weight:600"></span></h4>
+        <div class="lines" id="lrows"></div>
+        <div class="r">
+          <button id="nudgeL" class="sm wide">◀ −50ms</button>
+          <button id="nudgeR" class="sm wide">+50ms ▶</button>
+          <button id="dupline" class="sm wide">Duplicate</button>
+          <button id="delline" class="sm wide">Delete</button>
+        </div>
+        <p class="hint">Click a block on the timeline to select and seek. Drag it to move, drag its right edge to stretch. <code>[</code> and <code>]</code> nudge the selected card.</p>
+      </div>
+    </div>
+
+    <!-- ---------------- EXPORT ---------------- -->
+    <div class="pane" data-pane="out">
+      <div class="grp">
+        <h4>Format</h4>
+        <select id="ratio">
+          <option value="9:16">9:16 — Reels, TikTok, Shorts (1080×1920)</option>
+          <option value="4:5">4:5 — Instagram feed (1080×1350)</option>
+          <option value="1:1">1:1 — square (1080×1080)</option>
+          <option value="16:9">16:9 — YouTube (1920×1080)</option>
+          <option value="2.39:1">2.39:1 — scope bar (1920×803)</option>
+        </select>
+        <div class="r">
+          <select id="fps"><option value="30">30 fps</option><option value="60">60 fps</option><option value="24">24 fps</option></select>
+          <select id="vbr"><option value="8">8 Mbps</option><option value="12">12 Mbps</option><option value="16">16 Mbps</option><option value="4">4 Mbps</option></select>
+        </div>
+        <div class="r">
+          <span class="chip on" id="qualchip">Full-res preview</span>
+          <span class="chip" id="guidechip">Safe guides</span>
+        </div>
+      </div>
+
+      <div class="grp">
+        <h4>Range</h4>
+        <div class="r">
+          <div class="fld"><span class="lab">In <b id="v-in">0:00.00</b></span><button id="setin" class="sm">Set in</button></div>
+          <div class="fld"><span class="lab">Out <b id="v-out">—</b></span><button id="setout" class="sm">Set out</button></div>
+          <div class="fld"><span class="lab">&nbsp;</span><button id="clrrange" class="sm">Whole</button></div>
+        </div>
+      </div>
+
+      <div class="grp">
+        <h4>Render</h4>
+        <button id="rec" class="primary" disabled>● Record range</button>
+        <p class="hint">Recording runs in real time — a 30 second edit takes 30 seconds. Keep this tab in front; a backgrounded tab throttles the frame clock. Output is WebM (VP9 + Opus), which Premiere, Resolve, CapCut and every social uploader accept. <code>ffmpeg -i edit.webm -c:v libx264 -crf 18 edit.mp4</code> if you need H.264.</p>
+        <div class="r">
+          <button id="png" class="wide">Save this frame</button>
+          <button id="sheet" class="wide">Contact sheet</button>
+        </div>
+      </div>
+
+      <div class="grp">
+        <h4>Project</h4>
+        <div class="r">
+          <input type="text" id="pname" placeholder="edit name" spellcheck="false">
+          <button id="psave" class="fix">Save</button>
+        </div>
+        <select id="pslots"><option value="">— saved edits —</option></select>
+        <div class="r">
+          <button id="pload" class="wide">Load</button>
+          <button id="pdel" class="wide">Delete</button>
+        </div>
+        <div class="r">
+          <button id="pexport" class="wide">Export .json</button>
+          <label class="btn wide" for="pimport">Import .json</label>
+          <input type="file" id="pimport" accept=".json,application/json">
+        </div>
+        <p class="hint">Saved edits live in this browser only, and they hold the look and the timings — not the media. Images and the track are re-attached each session.</p>
+      </div>
+    </div>
+
+    <!-- ---------------- diagnostics ---------------- -->
+    <div class="diag" id="diag">
+      <div class="d"><span>clock</span><span id="d-clock" class="s-warn">free running</span></div>
+      <div class="d"><span>audio in</span><span id="d-audio" class="s-warn">none</span></div>
+      <div class="d"><span>spotify</span><span id="d-spot" class="s-warn">not connected</span></div>
+      <div class="d"><span>duration</span><span id="d-dur">—</span></div>
+      <div class="d"><span>cards</span><span id="d-lines">0</span></div>
+      <div class="d"><span>timed</span><span id="d-timed">no</span></div>
+      <div class="d"><span>plates</span><span id="d-media">0</span></div>
+      <div class="d"><span>fonts</span><span id="d-font" class="s-warn">loading</span></div>
+      <div class="d"><span>canvas</span><span id="d-taint" class="s-ok">clean</span></div>
+      <div class="d"><span>recorder</span><span id="d-rec">—</span></div>
+      <span class="msg" id="d-msg">Paste lyrics under Lines. Everything renders to canvas, so what you see is exactly what records.</span>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+/* =========================================================================
+   Kinetic Type — canvas edit deck
+   -------------------------------------------------------------------------
+   Everything draws into one <canvas> as a pure function of time: render(t).
+   That single decision buys three things the CSS-animation version could not
+   have: scrubbing backwards looks identical to scrubbing forwards, a frame
+   can be re-rendered off-clock for export, and MediaRecorder can capture the
+   real thing instead of a screen grab.
+   ========================================================================= */
+
+const $  = id => document.getElementById(id);
+const $$ = sel => Array.from(document.querySelectorAll(sel));
+const clamp = (v,a,b) => v < a ? a : v > b ? b : v;
+const lerp  = (a,b,p) => a + (b-a)*p;
+const inv   = (a,b,v) => b === a ? 0 : clamp((v-a)/(b-a),0,1);
+
+const ease = {
+  out:  p => 1 - Math.pow(1-p,3),
+  quint:p => 1 - Math.pow(1-p,5),
+  inout:p => p < .5 ? 4*p*p*p : 1 - Math.pow(-2*p+2,3)/2,
+  back: p => { const c=2.70158; return 1 + c*Math.pow(p-1,3) + 1.70158*Math.pow(p-1,2); },
+  elastic: p => p===0?0:p===1?1:Math.pow(2,-9*p)*Math.sin((p*8-.75)*(2*Math.PI/3))+1,
+  step: n => p => Math.floor(p*n)/(n-1 || 1)
+};
+
+function fmt(t){
+  if(!Number.isFinite(t)) return '0:00.00';
+  const s = Math.max(0,t), m = Math.floor(s/60), r = s - m*60;
+  return m + ':' + (r<10?'0':'') + r.toFixed(2);
+}
+
+/* ---------------------------------------------------------------- diagnostics
+   The original build got one thing exactly right: a blank stage should never
+   be a mystery. Every subsystem reports here, and every failure names its own
+   cause and the way out. */
+const DIAG = {
+  set(id, text, cls){ const el = $(id); if(!el) return; el.textContent = text; el.className = cls || ''; },
+  say(text, cls){ const el = $('d-msg'); el.textContent = text; el.className = 'msg ' + (cls||''); }
+};
+
+/* ---------------------------------------------------------------- geometry */
+const RATIOS = {
+  '9:16':   [1080,1920],
+  '4:5':    [1080,1350],
+  '1:1':    [1080,1080],
+  '16:9':   [1920,1080],
+  '2.39:1': [1920,803]
+};
+
+/* ---------------------------------------------------------------- typefaces
+   Weight matters as much as family: a display face at 400 and a grotesque at
+   900 are different tools. Each entry carries the exact CSS shorthand the
+   canvas needs, because ctx.font silently falls back when it cannot parse. */
+const FONTS = [
+  {id:'anton',   label:'Anton — poster',            css:'400 {S}px "Anton", Impact, sans-serif',            up:true},
+  {id:'bebas',   label:'Bebas Neue — condensed',    css:'400 {S}px "Bebas Neue", Impact, sans-serif',       up:true},
+  {id:'archblk', label:'Archivo Black — heavy',     css:'400 {S}px "Archivo Black", Arial Black, sans-serif'},
+  {id:'oswald',  label:'Oswald — tall',             css:'700 {S}px "Oswald", Impact, sans-serif'},
+  {id:'syne',    label:'Syne — display',            css:'800 {S}px "Syne", Georgia, serif'},
+  {id:'playfair',label:'Playfair — italic serif',   css:'italic 900 {S}px "Playfair Display", Georgia, serif'},
+  {id:'space',   label:'Space Grotesk — technical', css:'700 {S}px "Space Grotesk", ui-monospace, monospace'},
+  {id:'inter9',  label:'Inter Black — neutral',     css:'900 {S}px "Inter", system-ui, sans-serif'},
+  {id:'archivo', label:'Archivo — subtitle',        css:'700 {S}px "Archivo", system-ui, sans-serif'},
+  {id:'sys',     label:'System — always available', css:'800 {S}px system-ui, -apple-system, sans-serif'}
+];
+const fontCss = (id,size) => (FONTS.find(f=>f.id===id)||FONTS[0]).css.replace('{S}', Math.round(size));
+
+/* fonts.check() against a full stack answers "would anything render?", which is
+   always yes — the fallback sees to that. Checking the primary family alone is
+   the only way to know whether the face you asked for actually arrived. */
+const FAM = {anton:'Anton', bebas:'Bebas Neue', archblk:'Archivo Black', oswald:'Oswald',
+             syne:'Syne', playfair:'Playfair Display', space:'Space Grotesk',
+             inter9:'Inter', archivo:'Archivo', sys:null};
+const faceReady = id => { const f = FAM[id]; if(!f) return true;
+  try{ return document.fonts.check('80px "' + f + '"'); }catch(e){ return false; } };
+
+/* ---------------------------------------------------------------- animation
+   Each entry maps a normalised progress p to a transform. Returning a plain
+   object rather than mutating the context keeps them composable: the outro
+   fade multiplies whatever the intro produced, and the beat shake adds on top
+   without any of them knowing about each other.
+     o  opacity        x,y  offset in design px
+     s  scale          r    rotation in radians
+     b  blur px        clip 0..1 vertical reveal        ch  0..1 chars shown
+     ox,oy  transform origin as a fraction of the word box */
+const ANIMS = {
+  snap:   {label:'Snap',    dur:.34, f:p=>({o:clamp(p*6,0,1), s:lerp(.55,1,ease.back(p)), y:lerp(10,0,ease.back(p))})},
+  rise:   {label:'Rise',    dur:.42, f:p=>({o:clamp(p*3,0,1), y:lerp(34,0,ease.quint(p)), r:lerp(.045,0,ease.quint(p))})},
+  drop:   {label:'Drop',    dur:.36, f:p=>({o:clamp(p*5,0,1), s:lerp(2.6,1,ease.out(p)), b:lerp(10,0,ease.out(p))})},
+  strobe: {label:'Strobe',  dur:.20, f:p=>({o:p<.25?0:1, s:lerp(1.22,1,ease.step(3)(p))})},
+  blur:   {label:'Blur in', dur:.46, f:p=>({o:clamp(p*2.2,0,1), b:lerp(22,0,ease.out(p)), s:lerp(1.08,1,ease.out(p))})},
+  slide:  {label:'Slide',   dur:.38, f:(p,n)=>({o:clamp(p*3,0,1), x:lerp(n%2?70:-70,0,ease.quint(p))})},
+  mask:   {label:'Mask up', dur:.40, f:p=>({o:1, clip:ease.quint(p), y:lerp(14,0,ease.quint(p))})},
+  wave:   {label:'Wave',    dur:.60, f:p=>({o:clamp(p*4,0,1), y:Math.sin(p*Math.PI*2.4)*26*(1-ease.out(p))})},
+  swing:  {label:'Swing',   dur:.44, f:p=>({o:clamp(p*4,0,1), r:lerp(-.28,0,ease.back(p)), ox:0, oy:1})},
+  pop:    {label:'Pop',     dur:.50, f:p=>({o:clamp(p*8,0,1), s:lerp(.2,1,ease.elastic(p))})},
+  type:   {label:'Type',    dur:.30, f:p=>({o:1, ch:p})},
+  glitch: {label:'Glitch',  dur:.34, f:p=>({o:p<.08?0:1, x:p<.5?(Math.random()-.5)*34:0, y:p<.35?(Math.random()-.5)*14:0, rgb:clamp(1-p*2,0,1)})},
+  scale:  {label:'Squeeze', dur:.34, f:p=>({o:clamp(p*5,0,1), sx:lerp(.35,1,ease.back(p)), sy:lerp(1.5,1,ease.back(p))})},
+  none:   {label:'Cut',     dur:.01, f:()=>({o:1})}
+};
+
+/* ---------------------------------------------------------------- grades
+   filter is the cheap half; the fills afterwards are what stop everything
+   looking like an Instagram preset from 2012. */
+const GRADES = {
+  none:   {label:'Raw'},
+  noir:   {label:'Noir',    filter:'grayscale(1) contrast(1.25)'},
+  bleach: {label:'Bleach',  filter:'contrast(1.35) saturate(.55) brightness(1.06)'},
+  warm:   {label:'Warm',    filter:'saturate(1.15)', fill:'#FF7A2B', op:.17, blend:'soft-light'},
+  cold:   {label:'Cold',    filter:'saturate(.9)',   fill:'#2E6BFF', op:.20, blend:'soft-light'},
+  duotone:{label:'Duotone', filter:'grayscale(1) contrast(1.15)', fill:'#1433C4', op:1, blend:'color', fill2:'#FF4A17', op2:.30, blend2:'soft-light'},
+  vhs:    {label:'VHS',     filter:'saturate(1.5) contrast(1.1) hue-rotate(-8deg)', scan:true},
+  print:  {label:'Newsprint', filter:'grayscale(1) contrast(1.6) brightness(1.1)', halftone:true},
+  fade:   {label:'Faded',   filter:'contrast(.82) saturate(.75) brightness(1.1)', fill:'#D8CFC0', op:.14, blend:'screen'}
+};
+
+/* ================================================================== state */
+const DEFAULTS = {
+  anim:'snap', stagger:60, indur:.34, outdur:.18,
+  font:'anton', size:112, track:-1.5, lh:.94, case:'upper', align:'center', posy:50, margin:9,
+  treat:'none', ctext:'#F2EDE4', chit:'#FF4A17', hitmode:'long',
+  bgmode:'single', every:4, fade:.3, fit:'cover',
+  kb:'none', kbamt:14, pulse:0, shake:0,
+  grade:'none', expo:100, contr:100, sat:100, iblur:0, ctint:'#1433C4', tintamt:0, vig:45, grain:16, cbg:'#1433C4',
+  clocksrc:"auto", ratio:"9:16", fps:30, vbr:8, guides:false, quality:1,
+  spoff:0
+};
+
+const S = Object.assign({}, DEFAULTS);
+
+const state = {
+  lines: [],          // {t,d,text}
+  sel: -1,            // selected card index
+  timed: false,
+  beats: [],          // seconds
+  bpm: 0,
+  peaks: null,        // Float32Array pairs for the waveform
+  inPt: 0, outPt: null,
+  snap: false, grid: false,
+  recording: false,
+  tainted: false,
+  history: []
+};
+
+const canvas = $('stage');
+const ctx = canvas.getContext('2d', {alpha:false});
+let DW = 1080, DH = 1920;   // design units — every draw call speaks these
+
+/* ================================================================== media
+   A plate is one image or one video clip. They are kept as decoded elements,
+   never as data URLs, so a twelve-image edit costs twelve object URLs rather
+   than twelve megabytes of base64 sitting in the project blob. */
+const media = [];   // {kind:'img'|'vid', el, name, url, w, h}
+
+function addMedia(file){
+  return new Promise((resolve,reject) => {
+    const url = URL.createObjectURL(file);
+    const vid = /^video\//.test(file.type) || /\.(mp4|webm|mov)$/i.test(file.name);
+    if(vid){
+      const el = document.createElement('video');
+      el.src = url; el.muted = true; el.loop = true; el.playsInline = true; el.preload = 'auto';
+      el.onloadedmetadata = () => { media.push({kind:'vid', el, name:file.name, url, w:el.videoWidth, h:el.videoHeight}); resolve(); };
+      el.onerror = () => reject(new Error('could not decode ' + file.name));
+    } else {
+      const el = new Image();
+      el.onload = () => { media.push({kind:'img', el, name:file.name, url, w:el.naturalWidth, h:el.naturalHeight}); resolve(); };
+      el.onerror = () => reject(new Error('could not decode ' + file.name));
+      el.src = url;
+    }
+  });
+}
+
+/* Remote artwork taints the canvas unless the host sends CORS headers, and a
+   tainted canvas kills captureStream() and toDataURL() — which is to say it
+   kills the whole export. So: try clean, fall back to dirty, and say which. */
+function addRemoteImage(url, name){
+  return new Promise((resolve,reject) => {
+    const tryLoad = (cross) => {
+      const el = new Image();
+      if(cross) el.crossOrigin = 'anonymous';
+      el.onload = () => {
+        media.push({kind:'img', el, name:name||'artwork', url, w:el.naturalWidth, h:el.naturalHeight, remote:!cross});
+        if(!cross){ state.tainted = true; DIAG.set('d-taint','tainted — export off','s-bad'); }
+        resolve();
+      };
+      el.onerror = () => cross ? tryLoad(false) : reject(new Error('artwork blocked'));
+      el.src = url;
+    };
+    tryLoad(true);
+  });
+}
+
+function clearMedia(){
+  media.forEach(m => { try{ URL.revokeObjectURL(m.url); }catch(e){} });
+  media.length = 0;
+  state.tainted = false;
+  DIAG.set('d-taint','clean','s-ok');
+  paintThumbs(); refreshDiag();
+}
+
+/* ------------------------------------------------------------- noise tiles */
+function noiseTile(){
+  const c = document.createElement('canvas'); c.width = c.height = 180;
+  const x = c.getContext('2d'), d = x.createImageData(180,180), p = d.data;
+  for(let i=0;i<p.length;i+=4){ const v = (Math.random()*255)|0; p[i]=p[i+1]=p[i+2]=v; p[i+3]=255; }
+  x.putImageData(d,0,0); return c;
+}
+function dotTile(){
+  const c = document.createElement('canvas'); c.width = c.height = 6;
+  const x = c.getContext('2d'); x.fillStyle = 'rgba(0,0,0,.55)';
+  x.beginPath(); x.arc(3,3,1.35,0,7); x.fill(); return c;
+}
+function scanTile(){
+  const c = document.createElement('canvas'); c.width = 4; c.height = 4;
+  const x = c.getContext('2d'); x.fillStyle = 'rgba(0,0,0,.34)'; x.fillRect(0,0,4,2); return c;
+}
+const GRAIN = ctx.createPattern(noiseTile(),'repeat');
+const DOTS  = ctx.createPattern(dotTile(),'repeat');
+const SCAN  = ctx.createPattern(scanTile(),'repeat');
+
+/* ================================================================== script */
+// "start | duration | text", or a bare lyric line. Section headers go away.
+const isHeader = r => /^[\[(].*[\])]$/.test(r);
+const rowText  = r => { const p = r.split('|'); return (p.length >= 3 ? p.slice(2).join('|') : p[0]).trim(); };
+
+function cleanRows(raw){
+  return raw.split('\n').map(r => r.trim()).filter(Boolean).filter(r => !isHeader(r));
+}
+
+function parseScript(raw){
+  const rows = cleanRows(raw);
+  let anyTimed = false, cursor = 0;
+  const out = [];
+  for(const row of rows){
+    const parts = row.split('|');
+    if(parts.length >= 3){
+      const t = parseFloat(parts[0]), d = parseFloat(parts[1]);
+      const text = parts.slice(2).join('|').trim();
+      if(!text) continue;
+      if(Number.isFinite(t)){
+        anyTimed = true;
+        const dur = Number.isFinite(d) && d > 0 ? d : 2.4;
+        out.push({t, d:dur, text});
+        cursor = Math.max(cursor, t + dur + .2);
+        continue;
+      }
+    }
+    out.push({t:cursor, d:2.4, text:row});
+    cursor += 2.6;
+  }
+  out.sort((a,b) => a.t - b.t);
+  return {lines:out, timed:anyTimed};
+}
+
+function serialise(){
+  return state.lines.map(l => l.t.toFixed(2) + ' | ' + l.d.toFixed(2) + ' | ' + l.text).join('\n');
+}
+
+// *stars* mark an accent word, // forces a break inside the card.
+function tokens(text){
+  const out = [];
+  for(const raw of text.split(/\s+/)){
+    if(!raw) continue;
+    if(raw === '//'){ out.push({br:true}); continue; }
+    const mark = /^\*.*\*$/.test(raw);
+    let w = mark ? raw.slice(1,-1) : raw;
+    if(S.case === 'upper') w = w.toUpperCase();
+    else if(S.case === 'lower') w = w.toLowerCase();
+    else if(S.case === 'title') w = w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+    out.push({text:w, mark});
+  }
+  return out;
+}
+
+function hitIndex(toks){
+  const words = toks.filter(t => !t.br);
+  if(!words.length) return -1;
+  switch(S.hitmode){
+    case 'none': return -1;
+    case 'all':  return -2;                      // sentinel: colour everything
+    case 'mark': return -3;                      // sentinel: honour the stars
+    case 'first':return 0;
+    case 'last': return words.length - 1;
+    default: {
+      let best = 0;
+      words.forEach((w,i) => { if(w.text.length > words[best].text.length) best = i; });
+      return best;
+    }
+  }
+}
+
+function lineAt(t){
+  for(let i=0;i<state.lines.length;i++){
+    const l = state.lines[i];
+    if(t >= l.t && t < l.t + l.d) return i;
+  }
+  return -1;
+}
+
+/* ================================================================== layout */
+const HAS_TRACKING = 'letterSpacing' in ctx;
+let measureCache = new Map(), measureKey = '';
+
+function setFace(size){
+  ctx.font = fontCss(S.font, size);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  if(HAS_TRACKING) ctx.letterSpacing = (S.track/100*size).toFixed(2) + 'px';
+}
+
+function measure(word, size){
+  const key = S.font + '|' + size + '|' + S.track + '|' + word;
+  if(measureCache.has(key)) return measureCache.get(key);
+  const w = ctx.measureText(word).width;
+  if(measureCache.size > 4000) measureCache.clear();
+  measureCache.set(key, w);
+  return w;
+}
+
+/* Rows are laid out once per frame. It is cheap — a handful of measureText
+   calls against a cache — and it means size, tracking and margin sliders move
+   the type live instead of on the next card. */
+function layout(toks, size){
+  setFace(size);
+  const maxW = DW * (1 - S.margin/100*2);
+  const space = measure(' ', size) || size*.26;
+  const rows = [];
+  let cur = [], curW = 0, order = 0;
+
+  const push = () => { if(cur.length){ rows.push({words:cur, w:curW}); cur = []; curW = 0; } };
+
+  for(const tk of toks){
+    if(tk.br){ push(); continue; }
+    const w = measure(tk.text, size);
+    if(cur.length && curW + space + w > maxW) push();
+    const gap = cur.length ? space : 0;
+    cur.push({text:tk.text, mark:tk.mark, w, x:curW + gap, n:order++});
+    curW += gap + w;
+  }
+  push();
+  return {rows, size, maxW};
+}
+
+/* If a card overflows the frame, shrink it rather than letting it bleed off
+   the edge. Silent clipping is the one failure mode you cannot see coming. */
+function fitLayout(toks){
+  let size = S.size;
+  let L = layout(toks, size);
+  const maxH = DH * .78;
+  let guard = 0;
+  while(guard++ < 24){
+    const tall = L.rows.length * size * S.lh;
+    const wide = L.rows.some(r => r.w > L.maxW + 1);
+    if(tall <= maxH && !wide) break;
+    size *= .93;
+    L = layout(toks, size);
+  }
+  L.size = size;
+  L.shrunk = size < S.size - .5;
+  return L;
+}
+
+/* ================================================================== render */
+function lum(hex){
+  const n = parseInt(hex.slice(1),16);
+  return (0.2126*(n>>16&255) + 0.7152*(n>>8&255) + 0.0722*(n&255))/255;
+}
+const readable = hex => lum(hex) > .55 ? '#0B0E1C' : '#F7F5F1';
+
+function fitBox(iw, ih, W, H, mode){
+  if(mode === 'stretch') return {x:0, y:0, w:W, h:H};
+  const sc = mode === 'contain' ? Math.min(W/iw, H/ih) : Math.max(W/iw, H/ih);
+  const w = iw*sc, h = ih*sc;
+  return {x:(W-w)/2, y:(H-h)/2, w, h};
+}
+
+/* Which plate is on screen, and how far through its own window are we.
+   Returning the outgoing plate as well is what makes a crossfade possible
+   without a second pass over the schedule. */
+function plateAt(t){
+  if(!media.length) return null;
+  const dur = duration() || 1;
+  let idx = 0, p = 0, start = 0, span = dur;
+
+  if(S.bgmode === 'single'){ idx = 0; start = 0; span = dur; }
+  else if(S.bgmode === 'line'){
+    const i = lineAt(t);
+    if(i < 0){ const j = Math.max(0, state.lines.findIndex(l => l.t > t)); idx = j; start = 0; span = dur; }
+    else { idx = i; start = state.lines[i].t; span = state.lines[i].d; }
+  }
+  else if(S.bgmode === 'section'){
+    let sec = 0, start0 = 0;
+    for(let i=0;i<state.lines.length;i++){
+      const gap = i ? state.lines[i].t - (state.lines[i-1].t + state.lines[i-1].d) : 0;
+      if(gap > 1.2){ sec++; if(state.lines[i].t <= t) start0 = state.lines[i].t; }
+      if(state.lines[i].t > t) break;
+    }
+    idx = sec; start = start0; span = Math.max(2, dur - start0);
+  }
+  else { const k = Math.floor(t/S.every); idx = k; start = k*S.every; span = S.every; }
+
+  const cur  = media[((idx % media.length) + media.length) % media.length];
+  const next = media[(((idx+1) % media.length) + media.length) % media.length];
+  p = clamp((t - start)/Math.max(.001, span), 0, 1);
+
+  const fadeIn = S.fade > 0 && S.bgmode !== 'single'
+    ? clamp((t - start)/S.fade, 0, 1) : 1;
+
+  return {cur, next, p, fadeIn, start, span, idx};
+}
+
+function kenBurns(p){
+  const a = S.kbamt/100;
+  switch(S.kb){
+    case 'in':    return {z:1 + a*p,         dx:0, dy:0};
+    case 'out':   return {z:1 + a*(1-p),     dx:0, dy:0};
+    case 'left':  return {z:1 + a*.55,       dx:-a*p*DW*.5, dy:0};
+    case 'right': return {z:1 + a*.55,       dx: a*p*DW*.5, dy:0};
+    case 'drift': return {z:1 + a*(.3+p*.7), dx:Math.sin(p*2.2)*a*DW*.2, dy:Math.cos(p*1.6)*a*DH*.08};
+    case 'sway':  return {z:1 + a*.4,        dx:Math.sin(p*Math.PI*2)*a*DW*.16, dy:0};
+    default:      return {z:1, dx:0, dy:0};
+  }
+}
+
+function drawPlate(item, p, alpha, t){
+  if(!item || alpha <= 0) return;
+  const el = item.el;
+  if(item.kind === 'vid'){
+    if(transport.playing && el.paused) el.play().catch(()=>{});
+    if(!transport.playing && !el.paused) el.pause();
+    if(el.readyState < 2) return;
+  }
+  const iw = item.kind === 'vid' ? (el.videoWidth||16) : item.w;
+  const ih = item.kind === 'vid' ? (el.videoHeight||9) : item.h;
+  if(!iw || !ih) return;
+
+  const beat = S.pulse/100 * AUD.level;
+  const kb = kenBurns(p);
+  const z = kb.z * (1 + beat*.12);
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+
+  const g = GRADES[S.grade] || GRADES.none;
+  const filters = [];
+  if(g.filter) filters.push(g.filter);
+  if(S.expo  !== 100) filters.push('brightness(' + (S.expo/100) + ')');
+  if(S.contr !== 100) filters.push('contrast('   + (S.contr/100) + ')');
+  if(S.sat   !== 100) filters.push('saturate('   + (S.sat/100) + ')');
+  if(S.iblur > 0)     filters.push('blur(' + S.iblur + 'px)');
+  ctx.filter = filters.length ? filters.join(' ') : 'none';
+
+  if(S.fit === 'contain'){
+    const bg = fitBox(iw, ih, DW, DH, 'cover');
+    ctx.save(); ctx.filter = (ctx.filter === 'none' ? '' : ctx.filter + ' ') + 'blur(46px) brightness(.55)';
+    ctx.drawImage(el, bg.x - 40, bg.y - 40, bg.w + 80, bg.h + 80);
+    ctx.restore();
+  }
+
+  const b = fitBox(iw, ih, DW, DH, S.fit);
+  const w = b.w*z, h = b.h*z;
+  ctx.drawImage(el, b.x - (w-b.w)/2 + kb.dx, b.y - (h-b.h)/2 + kb.dy, w, h);
+  ctx.filter = 'none';
+
+  if(g.fill){ ctx.globalCompositeOperation = g.blend || 'soft-light'; ctx.globalAlpha = alpha*g.op; ctx.fillStyle = g.fill; ctx.fillRect(0,0,DW,DH); }
+  if(g.fill2){ ctx.globalCompositeOperation = g.blend2 || 'soft-light'; ctx.globalAlpha = alpha*g.op2; ctx.fillStyle = g.fill2; ctx.fillRect(0,0,DW,DH); }
+  ctx.restore();
+}
+
+function drawBackground(t){
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = S.cbg;
+  ctx.fillRect(0,0,DW,DH);
+
+  const plan = plateAt(t);
+  if(plan){
+    if(plan.fadeIn < 1 && media.length > 1){
+      const prevIdx = ((plan.idx - 1) % media.length + media.length) % media.length;
+      drawPlate(media[prevIdx], 1, 1, t);
+      drawPlate(plan.cur, plan.p, plan.fadeIn, t);
+    } else {
+      drawPlate(plan.cur, plan.p, 1, t);
+    }
+  }
+
+  const g = GRADES[S.grade] || GRADES.none;
+  if(g.scan){ ctx.save(); ctx.globalAlpha = .5; ctx.fillStyle = SCAN; ctx.fillRect(0,0,DW,DH); ctx.restore(); }
+  if(g.halftone){ ctx.save(); ctx.globalAlpha = .35; ctx.fillStyle = DOTS; ctx.fillRect(0,0,DW,DH); ctx.restore(); }
+
+  if(S.tintamt > 0){
+    ctx.save(); ctx.globalCompositeOperation = 'soft-light';
+    ctx.globalAlpha = S.tintamt/100; ctx.fillStyle = S.ctint;
+    ctx.fillRect(0,0,DW,DH); ctx.restore();
+  }
+}
+
+function drawVignette(){
+  if(S.vig <= 0) return;
+  const g = ctx.createRadialGradient(DW/2, DH*.45, Math.min(DW,DH)*.22, DW/2, DH*.45, Math.max(DW,DH)*.78);
+  g.addColorStop(0,'rgba(0,0,0,0)');
+  g.addColorStop(1,'rgba(0,0,0,' + (S.vig/100*.95).toFixed(3) + ')');
+  ctx.fillStyle = g; ctx.fillRect(0,0,DW,DH);
+}
+
+function drawGrain(){
+  if(S.grain <= 0) return;
+  ctx.save();
+  ctx.globalCompositeOperation = 'overlay';
+  ctx.globalAlpha = S.grain/100;
+  ctx.translate((Math.random()*180)|0, (Math.random()*180)|0);
+  ctx.fillStyle = GRAIN;
+  ctx.fillRect(-180,-180,DW+360,DH+360);
+  ctx.restore();
+}
+
+/* Reels puts its caption and buttons here, TikTok puts its rail here. Type
+   that lands underneath either is type nobody reads. */
+function drawGuides(){
+  if(!S.guides) return;
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,74,23,.85)'; ctx.lineWidth = 2; ctx.setLineDash([14,10]);
+  const top = DH*.11, bot = DH*.82, right = DW*.85;
+  ctx.beginPath();
+  ctx.moveTo(0,top); ctx.lineTo(DW,top);
+  ctx.moveTo(0,bot); ctx.lineTo(DW,bot);
+  ctx.moveTo(right,0); ctx.lineTo(right,DH);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = 'rgba(255,74,23,.85)';
+  ctx.font = '600 26px Archivo, system-ui, sans-serif';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  ctx.fillText('SAFE', 18, top + 10);
+  ctx.restore();
+}
+
+/* ---------------------------------------------------------------- the type */
+function drawWord(word, cx, cy, size, tr, colour){
+  const boxW = word.w, boxH = size*.78;
+  const ox = tr.ox === undefined ? .5 : tr.ox;
+  const oy = tr.oy === undefined ? .5 : tr.oy;
+  const px = cx - boxW/2 + boxW*ox;
+  const py = cy - boxH/2 + boxH*oy;
+
+  ctx.save();
+  ctx.translate(px + (tr.x||0), py + (tr.y||0));
+  if(tr.r) ctx.rotate(tr.r);
+  const s = tr.s === undefined ? 1 : tr.s;
+  ctx.scale(s * (tr.sx===undefined?1:tr.sx), s * (tr.sy===undefined?1:tr.sy));
+  ctx.translate(-px, -py);
+
+  ctx.globalAlpha = clamp(tr.o === undefined ? 1 : tr.o, 0, 1);
+  if(tr.b > .15) ctx.filter = 'blur(' + tr.b.toFixed(1) + 'px)';
+
+  if(tr.clip !== undefined && tr.clip < 1){
+    const h = boxH*1.5*tr.clip;
+    ctx.beginPath();
+    ctx.rect(cx - boxW/2 - size*.2, cy + boxH*.75 - h, boxW + size*.4, h);
+    ctx.clip();
+  }
+
+  setFace(size);
+  let text = word.text;
+  if(tr.ch !== undefined) text = text.slice(0, Math.max(1, Math.ceil(text.length*tr.ch)));
+
+  if(S.treat === 'plate' || S.treat === 'knock'){
+    const padX = size*.16, padY = size*.09;
+    const plateFill = S.treat === 'plate' ? colour : S.ctext;
+    ctx.fillStyle = plateFill;
+    const rx = cx - boxW/2 - padX, ry = cy - boxH/2 - padY;
+    const rw = boxW + padX*2, rh = boxH + padY*2;
+    ctx.beginPath();
+    if(ctx.roundRect) ctx.roundRect(rx, ry, rw, rh, size*.06); else ctx.rect(rx, ry, rw, rh);
+    ctx.fill();
+    ctx.fillStyle = S.treat === 'knock' ? S.cbg : readable(plateFill);
+    ctx.fillText(text, cx, cy);
+  } else {
+    if(S.treat === 'shadow'){
+      ctx.shadowColor = 'rgba(0,0,0,.55)';
+      ctx.shadowBlur = size*.20;
+      ctx.shadowOffsetY = size*.055;
+    }
+    if(tr.rgb > .02){
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = tr.rgb*.7;
+      ctx.fillStyle = '#FF0040'; ctx.fillText(text, cx - size*.06*tr.rgb, cy);
+      ctx.fillStyle = '#00E5FF'; ctx.fillText(text, cx + size*.06*tr.rgb, cy);
+      ctx.restore();
+    }
+    if(S.treat === 'outline'){
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = size*.085;
+      ctx.strokeStyle = '#0B0E1C';
+      ctx.strokeText(text, cx, cy);
+    }
+    ctx.fillStyle = colour;
+    ctx.fillText(text, cx, cy);
+  }
+  ctx.restore();
+}
+
+function drawText(t){
+  const i = lineAt(t);
+  if(i < 0) return {index:-1};
+  const line = state.lines[i];
+  const toks = tokens(line.text);
+  if(!toks.length) return {index:i};
+
+  const L = fitLayout(toks);
+  const size = L.size;
+  const hit = hitIndex(toks);
+
+  const rowH = size*S.lh;
+  const totalH = L.rows.length*rowH;
+  const cyTop = DH*(S.posy/100) - totalH/2 + rowH/2;
+
+  const anim = ANIMS[S.anim] || ANIMS.snap;
+  const outStart = line.t + line.d - S.outdur;
+  const outMul = S.outdur > 0 ? 1 - ease.out(inv(outStart, line.t + line.d, t)) : 1;
+
+  // A hit is the instant a word lands. It drives the frame shake, so it is
+  // computed here rather than guessed from the audio envelope.
+  let flash = 0;
+  const count = L.rows.reduce((a,r) => a + r.words.length, 0);
+
+  ctx.save();
+  if(S.shake > 0){
+    for(let n=0;n<count;n++){
+      const on = line.t + n*(S.stagger/1000);
+      const age = t - on;
+      if(age >= 0 && age < .16) flash = Math.max(flash, 1 - age/.16);
+    }
+    if(flash > 0){
+      const a = S.shake/100 * flash * 22;
+      ctx.translate((Math.random()-.5)*a, (Math.random()-.5)*a);
+    }
+  }
+
+  L.rows.forEach((row, ri) => {
+    const cy = cyTop + ri*rowH;
+    let originX;
+    if(S.align === 'left')       originX = DW*(S.margin/100);
+    else if(S.align === 'right') originX = DW*(1 - S.margin/100) - row.w;
+    else                         originX = (DW - row.w)/2;
+
+    row.words.forEach(word => {
+      const on = line.t + word.n*(S.stagger/1000);
+      const p  = clamp((t - on)/anim.dur, 0, 1);
+      if(t < on) return;
+      const tr = Object.assign({}, anim.f(p, word.n));
+      tr.o = (tr.o === undefined ? 1 : tr.o) * outMul;
+      if(outMul < 1) tr.s = (tr.s === undefined ? 1 : tr.s) * lerp(.94, 1, outMul);
+      const isHit = hit === -2 ? true : hit === -3 ? !!word.mark : (hit >= 0 && word.n === hit);
+      drawWord(word, originX + word.x + word.w/2, cy, size, tr, isHit ? S.chit : S.ctext);
+    });
+  });
+  ctx.restore();
+  return {index:i, shrunk:L.shrunk, size:Math.round(size)};
+}
+
+let lastShrunk = false;
+function render(t){
+  ctx.setTransform(canvas.width/DW, 0, 0, canvas.height/DH, 0, 0);
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 1;
+  ctx.filter = 'none';
+
+  drawBackground(t);
+  drawVignette();
+  const info = drawText(t);
+  drawGrain();
+  drawGuides();
+
+  if(info.shrunk !== lastShrunk){
+    lastShrunk = !!info.shrunk;
+    if(info.shrunk) DIAG.say('A card is wider than the frame, so it was scaled down to ' + info.size + 'px to fit. Shorten the line or drop the size slider.', 's-warn');
+  }
+  return info;
+}
+
+/* ================================================================== audio
+   One mix bus, three possible feeds. The bus is what the analyser listens to
+   and what the recorder records, so beat pulse and export always agree with
+   each other no matter where the sound came from.
+
+     local file  ->  mixBus  ->  analyser  ->  recorder
+                 \-> speakers                (monitoring only)
+     tab capture ->  mixBus                  (never to speakers: feedback)
+     microphone  ->  mixBus                  (never to speakers: howl)         */
+const AUD = {
+  ctx:null, mixBus:null, analyser:null, recDest:null, data:null,
+  fileSrc:null, capSrc:null, capStream:null,
+  level:0, env:null, envRate:0,
+  kind:'none'
+};
+
+const audio = new Audio();
+audio.preload = 'metadata';
+audio.crossOrigin = 'anonymous';
+
+function ensureGraph(){
+  if(AUD.ctx) return AUD.ctx;
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if(!AC){ DIAG.say('This browser has no Web Audio. Playback still works; the meter, beat pulse and audio export do not.', 's-bad'); return null; }
+  AUD.ctx = new AC();
+  AUD.mixBus = AUD.ctx.createGain();
+  AUD.analyser = AUD.ctx.createAnalyser();
+  AUD.analyser.fftSize = 1024;
+  AUD.analyser.smoothingTimeConstant = .72;
+  AUD.data = new Uint8Array(AUD.analyser.frequencyBinCount);
+  AUD.recDest = AUD.ctx.createMediaStreamDestination();
+  AUD.mixBus.connect(AUD.analyser);
+  AUD.analyser.connect(AUD.recDest);
+  return AUD.ctx;
+}
+
+function wireFile(){
+  if(!ensureGraph() || AUD.fileSrc) return;
+  try{
+    AUD.fileSrc = AUD.ctx.createMediaElementSource(audio);
+    AUD.fileSrc.connect(AUD.mixBus);
+    AUD.fileSrc.connect(AUD.ctx.destination);
+  }catch(e){
+    DIAG.say('Could not route the track through Web Audio: ' + e.message + '\nIt will still play, but it will not reach the meter or the export.', 's-warn');
+  }
+}
+
+function readLevel(){
+  if(!AUD.analyser) return;
+  AUD.analyser.getByteFrequencyData(AUD.data);
+  let sum = 0;
+  const n = Math.min(64, AUD.data.length);           // low end carries the beat
+  for(let i=0;i<n;i++) sum += AUD.data[i];
+  const raw = sum/(n*255);
+  AUD.level = AUD.level*.72 + raw*.28;
+}
+
+async function captureTab(){
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia){
+    DIAG.say('This browser cannot share tab audio. Chrome or Edge on desktop can; Safari and Firefox cannot. Use the mic, or load the track as a file.', 's-bad');
+    return;
+  }
+  try{
+    const stream = await navigator.mediaDevices.getDisplayMedia({
+      video:{width:1, height:1, frameRate:1},
+      audio:{echoCancellation:false, noiseSuppression:false, autoGainControl:false}
+    });
+    const tracks = stream.getAudioTracks();
+    if(!tracks.length){
+      stream.getTracks().forEach(t => t.stop());
+      DIAG.say('You shared a surface with no audio. Re-run it, pick the Spotify tab under "Chrome Tab", and tick "Also share tab audio" at the bottom-left of the picker.', 's-bad');
+      return;
+    }
+    stream.getVideoTracks().forEach(t => t.stop());
+    attachCapture(stream, 'tab: ' + (tracks[0].label || 'shared tab'));
+    tracks[0].addEventListener('ended', stopCapture);
+  }catch(e){
+    DIAG.say(e.name === 'NotAllowedError' ? 'Screen share dismissed — nothing captured.' : 'Capture failed: ' + e.message, 's-warn');
+  }
+}
+
+async function captureMic(){
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio:{echoCancellation:false, noiseSuppression:false, autoGainControl:false}
+    });
+    attachCapture(stream, 'mic: ' + (stream.getAudioTracks()[0].label || 'default'));
+    DIAG.say('Listening on the mic. Good enough to drive the beat pulse and to tap timings against; room noise will be in the export, so use a file or tab capture for the final render.', 's-warn');
+  }catch(e){
+    DIAG.say('Microphone refused: ' + e.name + '. Check the site permission in the address bar.', 's-bad');
+  }
+}
+
+function attachCapture(stream, label){
+  ensureGraph();
+  stopCapture(true);
+  AUD.capStream = stream;
+  AUD.capSrc = AUD.ctx.createMediaStreamSource(stream);
+  AUD.capSrc.connect(AUD.mixBus);
+  AUD.kind = 'live';
+  if(AUD.ctx.state === 'suspended') AUD.ctx.resume();
+  $('capstop').disabled = false;
+  $('meter').disabled = false;
+  DIAG.set('d-audio', label.length > 30 ? label.slice(0,28) + '…' : label, 's-ok');
+  refreshDiag();
+}
+
+function stopCapture(quiet){
+  if(AUD.capSrc){ try{ AUD.capSrc.disconnect(); }catch(e){} AUD.capSrc = null; }
+  if(AUD.capStream){ AUD.capStream.getTracks().forEach(t => t.stop()); AUD.capStream = null; }
+  $('capstop').disabled = true;
+  if(!quiet){
+    AUD.kind = audio.src ? 'file' : 'none';
+    DIAG.set('d-audio', audio.src ? 'local file' : 'none', audio.src ? 's-ok' : 's-warn');
+    refreshDiag();
+  }
+}
+
+/* ------------------------------------------------- offline beat detection
+   No FFT needed. An RMS envelope at ~86 Hz, its positive first difference,
+   adaptive-threshold peak picking, then autocorrelation of the flux for the
+   tempo. Crude next to a real onset detector; entirely good enough to hang
+   lyric cards off. */
+async function analyseBuffer(arrayBuf){
+  const AC = window.AudioContext || window.webkitAudioContext;
+  const ac = new AC();
+  const ab = await ac.decodeAudioData(arrayBuf);
+  const ch = ab.numberOfChannels > 1
+    ? (() => { const a = ab.getChannelData(0), b = ab.getChannelData(1), m = new Float32Array(a.length);
+               for(let i=0;i<a.length;i++) m[i] = (a[i]+b[i])*.5; return m; })()
+    : ab.getChannelData(0);
+
+  const sr = ab.sampleRate, hop = 512;
+  const frames = Math.floor(ch.length/hop);
+  const env = new Float32Array(frames);
+  for(let i=0;i<frames;i++){
+    let s = 0;
+    for(let j=0;j<hop;j++){ const v = ch[i*hop+j]; s += v*v; }
+    env[i] = Math.sqrt(s/hop);
+  }
+
+  const flux = new Float32Array(frames);
+  for(let i=1;i<frames;i++) flux[i] = Math.max(0, env[i] - env[i-1]);
+
+  const rate = sr/hop;
+  const win = Math.round(rate*.4);
+  const beats = [];
+  let last = -1e9;
+  for(let i=1;i<frames-1;i++){
+    let sum = 0, n = 0;
+    for(let j=Math.max(0,i-win); j<Math.min(frames,i+win); j++){ sum += flux[j]; n++; }
+    const thr = (sum/n)*1.55 + 1e-4;
+    if(flux[i] > thr && flux[i] >= flux[i-1] && flux[i] >= flux[i+1]){
+      const t = i/rate;
+      if(t - last > .14){ beats.push(t); last = t; }
+    }
+  }
+
+  let bpm = 0, best = 0;
+  for(let lag = Math.round(rate*.3); lag <= Math.round(rate*1.2); lag++){
+    let s = 0;
+    for(let i=lag;i<frames;i++) s += flux[i]*flux[i-lag];
+    if(s > best){ best = s; bpm = 60/(lag/rate); }
+  }
+  while(bpm && bpm < 70) bpm *= 2;
+  while(bpm > 185) bpm /= 2;
+
+  // waveform peaks for the timeline
+  const buckets = 1400;
+  const peaks = new Float32Array(buckets);
+  const step = Math.floor(ch.length/buckets) || 1;
+  for(let i=0;i<buckets;i++){
+    let m = 0;
+    for(let j=0;j<step;j+=7){ const v = Math.abs(ch[i*step+j] || 0); if(v > m) m = v; }
+    peaks[i] = m;
+  }
+
+  ac.close();
+  return {beats, bpm:Math.round(bpm*10)/10, peaks, env, envRate:rate, duration:ab.duration};
+}
+
+/* ================================================================ transport
+   One clock, four possible masters. Everything downstream asks transport.time
+   and never touches an <audio> element or a Spotify response directly. */
+const transport = {
+  playing:false, offset:0, startedAt:0,
+
+  get source(){
+    if(S.clocksrc && S.clocksrc !== 'auto') return S.clocksrc;
+    if(audio.src && Number.isFinite(audio.duration)) return 'file';
+    if(SP.token && SP.track) return 'spotify';
+    return 'free';
+  },
+
+  get time(){
+    const src = this.source;
+    if(src === 'file' && audio.src) return audio.currentTime;
+    if(src === 'spotify' && SP.anchor) return SP.now();
+    return this.playing ? this.offset + (performance.now() - this.startedAt)/1000 : this.offset;
+  },
+
+  play(){
+    const src = this.source;
+    if(src === 'file' && audio.src){
+      ensureGraph(); wireFile();
+      if(AUD.ctx && AUD.ctx.state === 'suspended') AUD.ctx.resume();
+      audio.play().then(() => { this.playing = true; syncPlayBtn(); })
+        .catch(err => DIAG.say('The browser blocked playback: ' + err.name + '.\nClick anywhere on the page once, then press play again. Autoplay policies need a gesture the page can point to.', 's-bad'));
+      return;
+    }
+    if(src === 'spotify'){ SP.control('play'); this.playing = true; syncPlayBtn(); return; }
+    this.startedAt = performance.now();
+    this.playing = true; syncPlayBtn();
+  },
+
+  pause(){
+    if(this.source === 'file' && audio.src){ audio.pause(); }
+    else if(this.source === 'spotify'){ SP.control('pause'); }
+    else { this.offset = this.time; }
+    this.playing = false; syncPlayBtn();
+  },
+
+  toggle(){ this.playing ? this.pause() : this.play(); },
+
+  seek(t){
+    t = clamp(t, 0, duration());
+    const src = this.source;
+    if(src === 'file' && audio.src){ audio.currentTime = t; return; }
+    if(src === 'spotify'){ SP.control('seek', t); return; }
+    this.offset = t; this.startedAt = performance.now();
+  }
+};
+
+function duration(){
+  const src = transport.source;
+  if(src === 'file' && Number.isFinite(audio.duration)) return audio.duration;
+  if(src === 'spotify' && SP.track) return SP.track.duration;
+  const last = state.lines[state.lines.length-1];
+  return last ? last.t + last.d + 1 : 20;
+}
+
+function syncPlayBtn(){
+  $('play').textContent = transport.playing ? '❚❚ Pause' : '▶ Play';
+}
+
+/* ================================================================= spotify
+   What is actually possible, and why this is built the way it is:
+
+   Spotify's stream is Widevine-encrypted. The Web Playback SDK will play a
+   track in this page, but the audio element it creates is opaque — you cannot
+   attach a MediaElementSource to it, you cannot read a sample out of it, and
+   you cannot record it. No amount of cleverness gets around that; it is the
+   entire point of the DRM.
+
+   What the Web API *will* give you, once a minute or once a second, is
+   is_playing, progress_ms and the track object. That is a clock and a piece
+   of artwork. So Spotify drives time and supplies the plate, and if you want
+   the waveform and sound in the export you pair it with tab capture, which
+   reads the decoded audio after the DRM has done its job.
+
+   Auth is PKCE: no client secret, nothing to leak, token in localStorage.  */
+const SP = {
+  token:null, refresh:null, expires:0, id:'', track:null, anchor:null, playing:false, timer:null, dev:null,
+
+  get redirectUri(){ return location.origin + location.pathname },
+
+  save(){
+    try{ localStorage.setItem('kt.sp', JSON.stringify({t:this.token, r:this.refresh, e:this.expires, id:this.id})); }catch(e){}
+  },
+  load(){
+    try{
+      const j = JSON.parse(localStorage.getItem('kt.sp') || '{}');
+      this.token = j.t || null; this.refresh = j.r || null; this.expires = j.e || 0; this.id = j.id || '';
+    }catch(e){}
+  },
+
+  async pkce(){
+    const bytes = crypto.getRandomValues(new Uint8Array(48));
+    const verifier = btoa(String.fromCharCode(...bytes)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+    const challenge = btoa(String.fromCharCode(...new Uint8Array(digest))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+    return {verifier, challenge};
+  },
+
+  async connect(){
+    const id = $('spid').value.trim();
+    if(!id){ DIAG.say('Spotify needs a Client ID. Make a free app at developer.spotify.com/dashboard, add the redirect URI shown above, and paste the Client ID in.', 's-bad'); return; }
+    if(location.protocol === 'file:'){
+      DIAG.say('Spotify will not redirect back to a file:// page — it only accepts https, or http on 127.0.0.1.\nServe this folder first: npx serve . and open the 127.0.0.1 address it prints.', 's-bad');
+      return;
+    }
+    if(!crypto.subtle){ DIAG.say('PKCE needs crypto.subtle, which browsers only expose on a secure origin. Use https or 127.0.0.1.', 's-bad'); return; }
+    this.id = id; this.save();
+    const {verifier, challenge} = await this.pkce();
+    sessionStorage.setItem('kt.verifier', verifier);
+    const p = new URLSearchParams({
+      client_id:id, response_type:'code', redirect_uri:this.redirectUri,
+      code_challenge_method:'S256', code_challenge:challenge,
+      scope:'user-read-playback-state user-read-currently-playing user-modify-playback-state'
+    });
+    location.href = 'https://accounts.spotify.com/authorize?' + p;
+  },
+
+  async handleRedirect(){
+    const q = new URLSearchParams(location.search);
+    if(q.get('error')){
+      DIAG.say('Spotify refused the sign-in: ' + q.get('error') + '. The usual cause is a redirect URI in the dashboard that does not match this page exactly.', 's-bad');
+      history.replaceState({}, '', this.redirectUri); return;
+    }
+    const code = q.get('code');
+    if(!code) return;
+    const verifier = sessionStorage.getItem('kt.verifier');
+    history.replaceState({}, '', this.redirectUri);
+    if(!verifier || !this.id) return;
+    try{
+      const r = await fetch('https://accounts.spotify.com/api/token', {
+        method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+        body:new URLSearchParams({
+          client_id:this.id, grant_type:'authorization_code', code,
+          redirect_uri:this.redirectUri, code_verifier:verifier
+        })
+      });
+      const j = await r.json();
+      if(!r.ok) throw new Error(j.error_description || j.error || r.status);
+      this.token = j.access_token; this.refresh = j.refresh_token;
+      this.expires = Date.now() + (j.expires_in-60)*1000;
+      this.save(); this.start();
+      DIAG.say('Spotify connected. Press play in Spotify and the cards will follow its clock.', 's-ok');
+    }catch(e){
+      DIAG.say('Token exchange failed: ' + e.message, 's-bad');
+    }
+  },
+
+  async renew(){
+    if(!this.refresh || !this.id) return false;
+    try{
+      const r = await fetch('https://accounts.spotify.com/api/token', {
+        method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+        body:new URLSearchParams({client_id:this.id, grant_type:'refresh_token', refresh_token:this.refresh})
+      });
+      const j = await r.json();
+      if(!r.ok) throw new Error(j.error || r.status);
+      this.token = j.access_token;
+      if(j.refresh_token) this.refresh = j.refresh_token;
+      this.expires = Date.now() + (j.expires_in-60)*1000;
+      this.save(); return true;
+    }catch(e){ return false; }
+  },
+
+  async api(path, opts){
+    if(!this.token) return null;
+    if(Date.now() > this.expires && !(await this.renew())) return null;
+    const r = await fetch('https://api.spotify.com/v1' + path,
+      Object.assign({headers:{Authorization:'Bearer ' + this.token}}, opts||{}));
+    if(r.status === 401){ if(await this.renew()) return this.api(path, opts); this.logout('token expired'); return null; }
+    if(r.status === 403){ DIAG.say('Spotify returned 403. Playback control needs Premium; reading the position does not.', 's-warn'); return null; }
+    if(r.status === 429){ DIAG.say('Spotify rate-limited us. Backing off for a few seconds.', 's-warn'); return null; }
+    if(r.status === 204) return {empty:true};
+    if(!r.ok) return null;
+    return r.json().catch(() => null);
+  },
+
+  start(){
+    clearInterval(this.timer);
+    this.timer = setInterval(() => this.poll(), 900);
+    this.poll();
+  },
+
+  async poll(){
+    const j = await this.api('/me/player');
+    if(!j) return;
+    if(j.empty || !j.item){
+      DIAG.set('d-spot','connected · idle','s-warn');
+      this.playing = false; return;
+    }
+    this.dev = j.device ? j.device.name : null;
+    const pos = j.progress_ms/1000;
+    this.playing = !!j.is_playing;
+
+    const fresh = !this.track || this.track.id !== j.item.id;
+    this.track = {
+      id:j.item.id, name:j.item.name,
+      artist:(j.item.artists||[]).map(a => a.name).join(', '),
+      duration:j.item.duration_ms/1000,
+      art:(j.item.album && j.item.album.images && j.item.album.images[0]) ? j.item.album.images[0].url : null
+    };
+
+    if(!this.anchor || fresh){ this.anchor = {pos, at:performance.now()}; }
+    else {
+      const err = pos - this.now();
+      if(Math.abs(err) > .35) this.anchor = {pos, at:performance.now()};
+      else this.anchor.pos += err*.3;          // creep, do not jump
+    }
+    if(this.playing !== transport.playing && transport.source === 'spotify'){
+      transport.playing = this.playing; syncPlayBtn();
+    }
+
+    DIAG.set('d-spot', (this.playing ? '▶ ' : '❚❚ ') + this.track.name + ' — ' + this.track.artist, 's-ok');
+    if(fresh){
+      $('pname').value = $('pname').value || (this.track.artist + ' — ' + this.track.name);
+      if(autoArt && this.track.art) useArtwork();
+    }
+    refreshDiag();
+  },
+
+  now(){
+    if(!this.anchor) return 0;
+    const drift = this.playing ? (performance.now() - this.anchor.at)/1000 : 0;
+    return Math.max(0, this.anchor.pos + drift + S.spoff/1000);
+  },
+
+  async control(cmd, val){
+    if(cmd === 'play')  await this.api('/me/player/play',  {method:'PUT'});
+    if(cmd === 'pause') await this.api('/me/player/pause', {method:'PUT'});
+    if(cmd === 'next')  await this.api('/me/player/next',  {method:'POST'});
+    if(cmd === 'prev')  await this.api('/me/player/previous', {method:'POST'});
+    if(cmd === 'seek')  await this.api('/me/player/seek?position_ms=' + Math.round(val*1000), {method:'PUT'});
+    setTimeout(() => this.poll(), 220);
+  },
+
+  logout(why){
+    clearInterval(this.timer);
+    this.token = this.refresh = null; this.track = this.anchor = null; this.expires = 0;
+    try{ localStorage.removeItem('kt.sp'); }catch(e){}
+    DIAG.set('d-spot', why || 'signed out', 's-warn');
+    refreshDiag();
+  }
+};
+
+let autoArt = true;
+async function useArtwork(){
+  if(!SP.track || !SP.track.art){ DIAG.say('No Spotify artwork yet — connect and start a track first.', 's-warn'); return; }
+  try{
+    await addRemoteImage(SP.track.art, SP.track.name + ' — cover');
+    paintThumbs(); refreshDiag();
+    if(state.tainted){
+      DIAG.say('Artwork loaded, but Spotify\'s CDN did not send CORS headers for it, so the canvas is now tainted and recording is disabled.\nScreenshot the cover and drop it in as a file to get the export back.', 's-warn');
+    } else {
+      DIAG.say('Cover art added as a plate. Blur it, tint it, and put the type on top.', 's-ok');
+    }
+  }catch(e){
+    DIAG.say('Could not fetch the cover: ' + e.message, 's-bad');
+  }
+}
+
+/* ================================================================ timeline */
+const tlWrap = $('tl'), tlc = $('tlc'), tctx = tlc.getContext('2d');
+let TW = 0, TH = 0;
+
+function sizeTimeline(){
+  const r = tlWrap.getBoundingClientRect();
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  TW = Math.max(1, Math.round(r.width)); TH = Math.max(1, Math.round(r.height));
+  tlc.width = TW*dpr; tlc.height = TH*dpr;
+  tctx.setTransform(dpr,0,0,dpr,0,0);
+}
+
+const t2x = t => (t/Math.max(.01, duration()))*TW;
+const x2t = x => (x/TW)*duration();
+
+function drawTimeline(now){
+  if(!TW) return;
+  const dur = Math.max(.01, duration());
+  tctx.clearRect(0,0,TW,TH);
+  tctx.fillStyle = '#171B28'; tctx.fillRect(0,0,TW,TH);
+
+  const waveH = TH*.44;
+  if(state.peaks){
+    tctx.fillStyle = '#2C3348';
+    const n = state.peaks.length;
+    for(let x=0;x<TW;x++){
+      const v = state.peaks[Math.floor(x/TW*n)] || 0;
+      const h = Math.max(1, v*waveH);
+      tctx.fillRect(x, waveH/2 + 2 - h/2, 1, h);
+    }
+  } else {
+    tctx.fillStyle = '#202636';
+    tctx.fillRect(0, waveH/2, TW, 1);
+  }
+
+  if(state.grid && state.beats.length){
+    tctx.fillStyle = 'rgba(255,255,255,.12)';
+    for(const b of state.beats){ const x = t2x(b); if(x >= 0 && x <= TW) tctx.fillRect(x, 0, 1, waveH); }
+  }
+
+  // in / out shading
+  if(state.inPt > 0 || state.outPt !== null){
+    tctx.fillStyle = 'rgba(0,0,0,.5)';
+    if(state.inPt > 0) tctx.fillRect(0,0,t2x(state.inPt),TH);
+    if(state.outPt !== null) tctx.fillRect(t2x(state.outPt),0,TW,TH);
+  }
+
+  const top = waveH + 5, h = TH - top - 4;
+  state.lines.forEach((l,i) => {
+    const x = t2x(l.t), w = Math.max(3, t2x(l.t + l.d) - x);
+    const on = i === state.sel;
+    tctx.fillStyle = on ? '#FF4A17' : '#39405A';
+    tctx.beginPath();
+    if(tctx.roundRect) tctx.roundRect(x, top, w, h, 2); else tctx.rect(x, top, w, h);
+    tctx.fill();
+    if(w > 26){
+      tctx.save();
+      tctx.beginPath(); tctx.rect(x+3, top, w-6, h); tctx.clip();
+      tctx.fillStyle = on ? '#180702' : '#AEB5CC';
+      tctx.font = '600 10px Archivo, system-ui, sans-serif';
+      tctx.textBaseline = 'middle';
+      tctx.fillText(rowText(l.text).replace(/[*]|\/\//g,'').slice(0,28), x+5, top + h/2);
+      tctx.restore();
+    }
+  });
+
+  const px = t2x(now);
+  tctx.fillStyle = '#F2EDE4'; tctx.fillRect(px-1, 0, 2, TH);
+  tctx.fillStyle = '#F2EDE4';
+  tctx.beginPath(); tctx.moveTo(px-5,0); tctx.lineTo(px+5,0); tctx.lineTo(px,7); tctx.fill();
+}
+
+let drag = null;
+function tlHit(x, y){
+  const top = TH*.44 + 5;
+  if(y < top) return null;
+  for(let i=state.lines.length-1;i>=0;i--){
+    const l = state.lines[i];
+    const x0 = t2x(l.t), x1 = t2x(l.t + l.d);
+    if(x >= x0-2 && x <= x1+2) return {i, edge:(x > x1-7)};
+  }
+  return null;
+}
+
+tlWrap.addEventListener('pointerdown', e => {
+  const r = tlWrap.getBoundingClientRect();
+  const x = e.clientX - r.left, y = e.clientY - r.top;
+  const hit = tlHit(x, y);
+  tlWrap.setPointerCapture(e.pointerId);
+  if(hit){
+    state.sel = hit.i;
+    pushHistory();
+    drag = {mode:hit.edge?'resize':'move', i:hit.i, x0:x, t0:state.lines[hit.i].t, d0:state.lines[hit.i].d};
+    paintRows();
+    if(!hit.edge) transport.seek(state.lines[hit.i].t);
+  } else {
+    drag = {mode:'seek'};
+    transport.seek(x2t(x));
+  }
+});
+
+tlWrap.addEventListener('pointermove', e => {
+  if(!drag) return;
+  const r = tlWrap.getBoundingClientRect();
+  const x = e.clientX - r.left;
+  if(drag.mode === 'seek'){ transport.seek(x2t(x)); return; }
+  const dt = x2t(x) - x2t(drag.x0);
+  const l = state.lines[drag.i];
+  if(drag.mode === 'move') l.t = Math.max(0, snapT(drag.t0 + dt));
+  else l.d = Math.max(.12, snapT(drag.t0 + drag.d0 + dt) - l.t);
+});
+
+const endDrag = () => {
+  if(drag && drag.mode !== 'seek'){ state.lines.sort((a,b) => a.t - b.t); syncScript(); }
+  drag = null;
+};
+tlWrap.addEventListener('pointerup', endDrag);
+tlWrap.addEventListener('pointercancel', endDrag);
+
+function snapT(t){
+  if(!state.snap || !state.beats.length) return t;
+  let best = t, bd = 1e9;
+  for(const b of state.beats){ const d = Math.abs(b-t); if(d < bd){ bd = d; best = b; } }
+  return bd < .28 ? best : t;
+}
+
+/* ============================================================ line editing */
+function pushHistory(){
+  state.history.push($('script').value);
+  if(state.history.length > 60) state.history.shift();
+}
+function undo(){
+  if(!state.history.length){ DIAG.say('Nothing left to undo.', 's-warn'); return; }
+  $('script').value = state.history.pop();
+  applyScript(true);
+}
+
+function syncScript(){
+  $('script').value = serialise();
+  state.timed = true;
+  paintRows();
+  refreshDiag();
+}
+
+function applyScript(quiet){
+  const {lines, timed} = parseScript($('script').value);
+  state.lines = lines;
+  state.timed = timed;
+  if(state.sel >= lines.length) state.sel = lines.length - 1;
+  paintRows();
+  refreshDiag();
+  if(quiet) return;
+  if(!lines.length) DIAG.say('No usable cards. Every row was blank or a section header — check the script box.', 's-bad');
+  else if(!timed) DIAG.say('Cards are spaced 2.6s apart as a placeholder. Load a track and tap the timing, or hit Space evenly.', 's-warn');
+}
+
+function paintRows(){
+  const box = $('lrows');
+  box.replaceChildren();
+  $('lcount').textContent = state.lines.length ? '· ' + state.lines.length : '';
+  const frag = document.createDocumentFragment();
+  state.lines.forEach((l,i) => {
+    const row = document.createElement('div');
+    row.className = 'lrow' + (i === state.sel ? ' on' : '');
+    const t = document.createElement('input'); t.value = l.t.toFixed(2); t.title = 'start';
+    const d = document.createElement('input'); d.value = l.d.toFixed(2); d.title = 'duration';
+    const x = document.createElement('input'); x.value = l.text; x.className = 'txt';
+    const go = document.createElement('div'); go.className = 'go'; go.textContent = '▶'; go.title = 'seek here';
+
+    const commit = () => {
+      pushHistory();
+      const nt = parseFloat(t.value), nd = parseFloat(d.value);
+      l.t = Number.isFinite(nt) ? Math.max(0,nt) : l.t;
+      l.d = Number.isFinite(nd) && nd > 0 ? nd : l.d;
+      l.text = x.value;
+      state.lines.sort((a,b) => a.t - b.t);
+      syncScript();
+    };
+    t.onchange = d.onchange = x.onchange = commit;
+    row.onpointerdown = () => { state.sel = i; paintRows(); };
+    go.onclick = () => { state.sel = i; transport.seek(l.t); paintRows(); };
+
+    row.append(t,d,x,go);
+    frag.appendChild(row);
+  });
+  box.appendChild(frag);
+}
+
+function paintThumbs(){
+  const box = $('thumbs');
+  box.replaceChildren();
+  media.forEach((m,i) => {
+    const d = document.createElement('div'); d.className = 'thumb';
+    const el = m.kind === 'vid' ? document.createElement('video') : document.createElement('img');
+    el.src = m.url; if(m.kind === 'vid'){ el.muted = true; el.playsInline = true; }
+    const n = document.createElement('span'); n.className = 'n'; n.textContent = i+1;
+    const x = document.createElement('span'); x.className = 'x'; x.textContent = '✕';
+    x.onclick = () => { try{ URL.revokeObjectURL(m.url); }catch(e){} media.splice(i,1); paintThumbs(); refreshDiag(); };
+    d.append(el,n,x);
+    box.appendChild(d);
+  });
+}
+
+/* ------------------------------------------------------------ tap to time */
+const TAP = {on:false, i:0, stack:[]};
+function endTap(msg){
+  TAP.on = false;
+  $('tap').classList.remove('armed');
+  $('tap').textContent = 'Tap to time';
+  if(msg) DIAG.say(msg, 's-ok');
+}
+function doTap(){
+  const rows = cleanRows($('script').value);
+  if(!rows.length){ DIAG.say('Nothing to time — the script box is empty.', 's-bad'); return; }
+
+  if(!TAP.on){
+    TAP.on = true; TAP.i = 0; TAP.stack = [];
+    $('tap').classList.add('armed');
+    $('tap').textContent = 'Tap — card 1';
+    DIAG.say('Armed. Start playback, then tap once as each card should land. Press Z to take back the last tap, Escape to stop.', 's-warn');
+    return;
+  }
+
+  const now = transport.time;
+  TAP.stack.push($('script').value);
+  rows[TAP.i] = now.toFixed(2) + ' | 2.40 | ' + rowText(rows[TAP.i]);
+  if(TAP.i > 0){
+    const prev = rows[TAP.i-1].split('|');
+    const dur = Math.max(.2, now - parseFloat(prev[0]));
+    rows[TAP.i-1] = parseFloat(prev[0]).toFixed(2) + ' | ' + dur.toFixed(2) + ' | ' + rowText(rows[TAP.i-1]);
+  }
+  $('script').value = rows.join('\n');
+  applyScript(true);
+  state.sel = TAP.i;
+  TAP.i++;
+
+  if(TAP.i >= rows.length){ endTap('All ' + rows.length + ' cards timed. The last one keeps its 2.4s tail — stretch it on the timeline if it should run longer.'); return; }
+  $('tap').textContent = 'Tap — card ' + (TAP.i+1);
+}
+function untap(){
+  if(!TAP.on || !TAP.stack.length) return;
+  $('script').value = TAP.stack.pop();
+  TAP.i = Math.max(0, TAP.i-1);
+  $('tap').textContent = 'Tap — card ' + (TAP.i+1);
+  applyScript(true);
+}
+
+/* ------------------------------------------------------------ bulk retime */
+function splitLines(){
+  pushHistory();
+  const per = clamp(parseInt($('perline').value)||5, 2, 12);
+  const out = [];
+  for(const r of cleanRows($('script').value)){
+    const words = rowText(r).split(/\s+/).filter(Boolean);
+    for(let i=0;i<words.length;i+=per) out.push(words.slice(i, i+per).join(' '));
+  }
+  $('script').value = out.join('\n');
+  applyScript();
+  DIAG.say('Re-cut to ' + out.length + ' cards of up to ' + per + ' words. Timings were dropped — re-tap or space evenly.', 's-ok');
+}
+
+function spaceEvenly(){
+  pushHistory();
+  const rows = cleanRows($('script').value);
+  if(!rows.length) return;
+  const from = state.inPt, to = state.outPt !== null ? state.outPt : duration();
+  const each = Math.max(.2, (to-from)/rows.length);
+  $('script').value = rows.map((r,i) => (from + i*each).toFixed(2) + ' | ' + each.toFixed(2) + ' | ' + rowText(r)).join('\n');
+  applyScript(true);
+  DIAG.say(rows.length + ' cards spread across ' + fmt(from) + '–' + fmt(to) + ', ' + each.toFixed(2) + 's each.', 's-ok');
+}
+
+function closeGaps(){
+  pushHistory();
+  for(let i=0;i<state.lines.length-1;i++){
+    state.lines[i].d = Math.max(.2, state.lines[i+1].t - state.lines[i].t);
+  }
+  syncScript();
+  DIAG.say('Every card now runs right up to the next one. No dead frames between cards.', 's-ok');
+}
+
+function snapAll(){
+  if(!state.beats.length){ DIAG.say('No beat map yet — run Detect beats on a local file first.', 's-warn'); return; }
+  pushHistory();
+  for(const l of state.lines){
+    let best = l.t, bd = 1e9;
+    for(const b of state.beats){ const d = Math.abs(b - l.t); if(d < bd){ bd = d; best = b; } }
+    if(bd < .32) l.t = best;
+  }
+  state.lines.sort((a,b) => a.t - b.t);
+  syncScript();
+  DIAG.say('Cards pulled onto the nearest detected beat where one was within 320ms.', 's-ok');
+}
+
+function stripTimings(){
+  pushHistory();
+  $('script').value = cleanRows($('script').value).map(rowText).join('\n');
+  applyScript();
+}
+
+/* ------------------------------------------------------------------- LRC */
+function toLrc(){
+  const pad = n => (n<10?'0':'') + n;
+  const body = state.lines.map(l => {
+    const m = Math.floor(l.t/60), s = l.t - m*60;
+    return '[' + pad(m) + ':' + (s<10?'0':'') + s.toFixed(2) + ']' + rowText(l.text);
+  }).join('\n');
+  download(new Blob([body], {type:'text/plain'}), ($('pname').value.trim() || 'kinetic') + '.lrc');
+}
+
+function fromLrc(text){
+  pushHistory();
+  const out = [];
+  for(const raw of text.split('\n')){
+    const m = raw.match(/^\s*\[(\d+):(\d+(?:[.:]\d+)?)\]\s*(.*)$/);
+    if(!m) continue;
+    const t = parseInt(m[1])*60 + parseFloat(m[2].replace(':','.'));
+    const body = m[3].trim();
+    if(body) out.push({t, text:body});
+  }
+  if(!out.length){ DIAG.say('That file had no [mm:ss.xx] stamps in it.', 's-bad'); return; }
+  out.sort((a,b) => a.t - b.t);
+  $('script').value = out.map((l,i) => {
+    const d = i < out.length-1 ? Math.max(.3, out[i+1].t - l.t) : 2.8;
+    return l.t.toFixed(2) + ' | ' + d.toFixed(2) + ' | ' + l.text;
+  }).join('\n');
+  applyScript(true);
+  DIAG.say('Imported ' + out.length + ' timed lines from the .lrc.', 's-ok');
+}
+
+/* ================================================================== export */
+function download(blob, name){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 20000);
+  if(window.self !== window.top){
+    DIAG.say('Saved "' + name + '". If nothing landed in Downloads, this page is inside a sandboxed frame that blocks them — open it in its own tab and export again.', 's-warn');
+  }
+}
+
+function setRatio(key){
+  const [w,h] = RATIOS[key] || RATIOS['9:16'];
+  DW = w; DH = h;
+  const q = state.recording ? 1 : S.quality;
+  canvas.width  = Math.round(w*q);
+  canvas.height = Math.round(h*q);
+  measureCache.clear();
+  $('h-ratio').innerHTML = key + ' · <b>' + w + '×' + h + '</b>';
+}
+
+function pickMime(){
+  const want = [
+    'video/webm;codecs=vp9,opus',
+    'video/webm;codecs=vp8,opus',
+    'video/webm;codecs=vp9',
+    'video/webm'
+  ];
+  for(const m of want) if(window.MediaRecorder && MediaRecorder.isTypeSupported(m)) return m;
+  return '';
+}
+
+let recorder = null, recChunks = [], recStop = null;
+
+function startRecord(){
+  if(state.tainted){
+    DIAG.say('Cannot record: the canvas is tainted by a cross-origin image, so the browser refuses to hand over its pixels. Remove the remote artwork plate and use a local copy.', 's-bad');
+    return;
+  }
+  if(!window.MediaRecorder){ DIAG.say('This browser has no MediaRecorder. Chrome, Edge or Firefox on desktop can record; iOS Safari cannot.', 's-bad'); return; }
+  const mime = pickMime();
+  if(!mime){ DIAG.say('No WebM encoder available in this browser.', 's-bad'); return; }
+
+  const from = state.inPt, to = state.outPt !== null ? state.outPt : duration();
+  if(to - from < .2){ DIAG.say('The in and out points are on top of each other. Widen the range or press Whole.', 's-bad'); return; }
+
+  state.recording = true;
+  setRatio(S.ratio);                       // full resolution regardless of preview quality
+
+  const stream = canvas.captureStream(S.fps);
+  if(AUD.recDest){
+    const at = AUD.recDest.stream.getAudioTracks();
+    if(at.length) stream.addTrack(at[0]);
+    else DIAG.say('Recording video only — nothing is feeding the mix bus. Load a file or start tab capture for sound.', 's-warn');
+  }
+
+  recChunks = [];
+  try{
+    recorder = new MediaRecorder(stream, {mimeType:mime, videoBitsPerSecond:S.vbr*1e6, audioBitsPerSecond:192000});
+  }catch(e){
+    state.recording = false; setRatio(S.ratio);
+    DIAG.say('Recorder refused those settings: ' + e.message, 's-bad'); return;
+  }
+
+  recorder.ondataavailable = e => { if(e.data && e.data.size) recChunks.push(e.data); };
+  recorder.onstop = () => {
+    const blob = new Blob(recChunks, {type:mime});
+    const name = ($('pname').value.trim() || 'kinetic-edit').replace(/[^\w\- ]+/g,'').trim().replace(/\s+/g,'-') + '.webm';
+    download(blob, name);
+    DIAG.set('d-rec', (blob.size/1048576).toFixed(1) + ' MB', 's-ok');
+    DIAG.say('Rendered ' + (to-from).toFixed(1) + 's to ' + name + ' — ' + (blob.size/1048576).toFixed(1) + ' MB, ' + mime.split(';')[0] + '.', 's-ok');
+  };
+
+  transport.seek(from);
+  const begin = () => {
+    recorder.start(250);
+    transport.play();
+    $('h-rec').hidden = false;
+    $('rec').textContent = '■ Stop';
+    $('rec').classList.add('rec');
+    DIAG.set('d-rec', 'recording…', 's-warn');
+    recStop = () => stopRecord();
+  };
+  setTimeout(begin, 140);                  // let the seek land before the first frame
+}
+
+function stopRecord(){
+  if(!recorder) return;
+  state.recording = false;
+  try{ recorder.stop(); }catch(e){}
+  recorder = null; recStop = null;
+  transport.pause();
+  $('h-rec').hidden = true;
+  $('rec').textContent = '● Record range';
+  $('rec').classList.remove('rec');
+  setRatio(S.ratio);
+}
+
+function savePng(){
+  if(state.tainted){ DIAG.say('Tainted canvas — a cross-origin plate blocks every pixel read, stills included.', 's-bad'); return; }
+  canvas.toBlob(b => download(b, ($('pname').value.trim() || 'kinetic') + '-' + Math.round(transport.time*100)/100 + 's.png'), 'image/png');
+}
+
+function contactSheet(){
+  if(state.tainted){ DIAG.say('Tainted canvas — cannot build a sheet.', 's-bad'); return; }
+  const cols = 3, rows = 3, n = cols*rows;
+  const cw = 420, chh = Math.round(cw*DH/DW);
+  const sheet = document.createElement('canvas');
+  sheet.width = cols*cw; sheet.height = rows*chh;
+  const sx = sheet.getContext('2d');
+  sx.fillStyle = '#0A0C13'; sx.fillRect(0,0,sheet.width,sheet.height);
+  const from = state.inPt, to = state.outPt !== null ? state.outPt : duration();
+  const keep = transport.time;
+  for(let i=0;i<n;i++){
+    render(from + (to-from)*(i/(n-1 || 1))*0.98);
+    sx.drawImage(canvas, (i%cols)*cw, Math.floor(i/cols)*chh, cw, chh);
+  }
+  render(keep);
+  sheet.toBlob(b => download(b, ($('pname').value.trim() || 'kinetic') + '-sheet.png'), 'image/png');
+  DIAG.say('Nine frames across the range — useful for picking a cover.', 's-ok');
+}
+
+/* ============================================================== projects */
+const PKEY = 'kt.projects';
+const readProjects = () => { try{ return JSON.parse(localStorage.getItem(PKEY) || '{}'); }catch(e){ return {}; } };
+const writeProjects = p => { try{ localStorage.setItem(PKEY, JSON.stringify(p)); }catch(e){ DIAG.say('Browser storage is full or blocked — saved edits will not persist.', 's-warn'); } };
+
+function projectBlob(){
+  return {v:2, name:$('pname').value, look:Object.assign({}, S), script:$('script').value, bpm:state.bpm, beats:state.beats.slice(0,4000)};
+}
+function loadBlob(j){
+  if(!j || !j.look) { DIAG.say('That file is not a Kinetic Type project.', 's-bad'); return; }
+  Object.assign(S, DEFAULTS, j.look);
+  $('pname').value = j.name || '';
+  $('script').value = j.script || '';
+  state.beats = j.beats || []; state.bpm = j.bpm || 0;
+  syncControls();
+  applyScript(true);
+  setRatio(S.ratio);
+  DIAG.say('Loaded "' + (j.name || 'untitled') + '". Re-attach the track and the plates.', 's-ok');
+}
+
+function listProjects(){
+  const p = readProjects(), sel = $('pslots');
+  sel.replaceChildren();
+  const o = document.createElement('option'); o.value = ''; o.textContent = '— saved edits —';
+  sel.appendChild(o);
+  Object.keys(p).sort().forEach(k => { const e = document.createElement('option'); e.value = k; e.textContent = k; sel.appendChild(e); });
+}
+
+/* ============================================================== diagnostics */
+function refreshDiag(){
+  const src = transport.source;
+  DIAG.set('d-clock',
+    src === 'file' ? 'local file' : src === 'spotify' ? 'spotify · ' + (SP.dev || 'remote') : 'free running',
+    src === 'free' ? 's-warn' : 's-ok');
+  DIAG.set('d-dur', Number.isFinite(duration()) ? duration().toFixed(2) + 's' : '—');
+  DIAG.set('d-lines', String(state.lines.length), state.lines.length ? 's-ok' : 's-bad');
+  DIAG.set('d-timed', state.timed ? 'yes' : 'provisional', state.timed ? 's-ok' : 's-warn');
+  DIAG.set('d-media', media.length ? media.length + ' plate' + (media.length>1?'s':'') : 'none', media.length ? 's-ok' : '');
+  $('detect').disabled = !state.file;
+  $('snapbeats').disabled = !state.beats.length;
+  $('rec').disabled = !state.lines.length || state.tainted;
+  $('bpmhint').textContent = state.bpm
+    ? state.bpm + ' BPM · ' + state.beats.length + ' onsets detected. Snap pulls cards onto the nearest one.'
+    : 'No tempo yet. Load a local file and hit Detect beats, or tap the tempo by hand.';
+  $('clockhint').textContent =
+    src === 'file'    ? 'Driven by the loaded file. Seekable, analysable, and it goes into the export with sound.'
+  : src === 'spotify' ? 'Driven by Spotify\'s reported position, corrected every 900ms. Scrubbing here seeks Spotify itself.'
+  :                     'No audio attached. The transport free-runs on the page clock so you can still block out and preview an edit.';
+}
+
+/* ================================================================ controls */
+function bindRange(id, key, fmtf){
+  const el = $(id), out = $('v-' + id);
+  const paint = () => { if(out) out.textContent = fmtf(S[key]); };
+  el.value = S[key]; paint();
+  el.addEventListener('input', () => { S[key] = parseFloat(el.value); paint(); });
+  el._paint = paint;
+}
+function bindSelect(id, key){
+  const el = $(id);
+  el.value = S[key];
+  el.addEventListener('change', () => { S[key] = el.value; onLookChange(key); });
+}
+function onLookChange(key){
+  if(key === 'ratio') setRatio(S.ratio);
+  if(key === 'case' || key === 'font') measureCache.clear();
+  if(key === 'clocksrc') refreshDiag();
+  $('everywrap').style.display = S.bgmode === 'interval' ? '' : 'none';
+}
+
+function chipRow(host, entries, key){
+  const box = $(host);
+  box.replaceChildren();
+  Object.keys(entries).forEach(k => {
+    const c = document.createElement('span');
+    c.className = 'chip' + (S[key] === k ? ' on hot' : '');
+    c.textContent = entries[k].label;
+    c.onclick = () => { S[key] = k; chipRow(host, entries, key); measureCache.clear(); };
+    box.appendChild(c);
+  });
+}
+
+function syncControls(){
+  RANGES.forEach(([id,key]) => { const el = $(id); el.value = S[key]; if(el._paint) el._paint(); });
+  ['font','case','align','hitmode','bgmode','fit','kb','grade','ratio','clocksrc'].forEach(k => { const el = $(k); if(el && S[k] !== undefined) el.value = S[k]; });
+  ['c-text','c-hit','c-tint','c-bg'].forEach(id => {
+    const map = {'c-text':'ctext','c-hit':'chit','c-tint':'ctint','c-bg':'cbg'};
+    $(id).value = S[map[id]];
+  });
+  $('fps').value = S.fps; $('vbr').value = S.vbr;
+  chipRow('anims', ANIMS, 'anim');
+  chipRow('grades', GRADES, 'grade');
+  $$('#treats .chip').forEach(c => c.classList.toggle('on', c.dataset.t === S.treat));
+  $('guidechip').classList.toggle('on', !!S.guides);
+  $('qualchip').classList.toggle('on', S.quality >= 1);
+  onLookChange('bgmode');
+}
+
+/* ================================================================== loop */
+let fpsAt = performance.now(), fpsN = 0;
+function frame(){
+  const t = transport.time;
+
+  if(transport.source === 'file' && audio.src) transport.playing = !audio.paused;
+  readLevel();
+
+  if(state.recording){
+    const to = state.outPt !== null ? state.outPt : duration();
+    if(t >= to - 1/S.fps) stopRecord();
+  }
+
+  render(t);
+  drawTimeline(t);
+
+  const i = lineAt(t);
+  if(i !== state.cur){ state.cur = i; $('h-line').innerHTML = 'line <b>' + (i >= 0 ? (i+1) + '/' + state.lines.length : '—') + '</b>'; }
+  $('clock').innerHTML = '<b>' + fmt(t) + '</b> / ' + fmt(duration());
+  if(AUD.analyser){ $('meter').value = Math.round(AUD.level*140); $('v-level').textContent = Math.round(AUD.level*100) + '%'; }
+
+  fpsN++;
+  const el = performance.now() - fpsAt;
+  if(el > 700){ $('h-fps').textContent = Math.round(fpsN/el*1000) + ' fps'; fpsN = 0; fpsAt = performance.now(); }
+
+  requestAnimationFrame(frame);
+}
+
+/* ================================================================== wiring */
+const RANGES = [
+  ['stag','stagger',  v => Math.round(v) + 'ms'],
+  ['indur','indur',   v => v.toFixed(2) + 's'],
+  ['outdur','outdur', v => v.toFixed(2) + 's'],
+  ['size','size',     v => Math.round(v)],
+  ['track','track',   v => v.toFixed(1) + '%'],
+  ['lh','lh',         v => v.toFixed(2)],
+  ['posy','posy',     v => Math.round(v) + '%'],
+  ['margin','margin', v => Math.round(v) + '%'],
+  ['every','every',   v => v.toFixed(2) + 's'],
+  ['fade','fade',     v => v.toFixed(2) + 's'],
+  ['kbamt','kbamt',   v => Math.round(v) + '%'],
+  ['pulse','pulse',   v => Math.round(v) + '%'],
+  ['shake','shake',   v => Math.round(v) + '%'],
+  ['expo','expo',     v => Math.round(v) + '%'],
+  ['contr','contr',   v => Math.round(v) + '%'],
+  ['sat','sat',       v => Math.round(v) + '%'],
+  ['iblur','iblur',   v => Math.round(v) + 'px'],
+  ['tintamt','tintamt', v => Math.round(v) + '%'],
+  ['vig','vig',       v => Math.round(v) + '%'],
+  ['grain','grain',   v => Math.round(v) + '%'],
+  ['spoff','spoff',   v => Math.round(v) + 'ms']
+];
+RANGES.forEach(([id,key,f]) => bindRange(id, key, f));
+['font','case','align','hitmode','bgmode','fit','kb','ratio','clocksrc'].forEach(k => bindSelect(k, k));
+$('fps').addEventListener('change', e => S.fps = parseInt(e.target.value));
+$('vbr').addEventListener('change', e => S.vbr = parseInt(e.target.value));
+$('c-text').addEventListener('input', e => S.ctext = e.target.value);
+$('c-hit').addEventListener('input',  e => S.chit  = e.target.value);
+$('c-tint').addEventListener('input', e => S.ctint = e.target.value);
+$('c-bg').addEventListener('input',   e => S.cbg   = e.target.value);
+
+$('tabs').addEventListener('click', e => {
+  const b = e.target.closest('button'); if(!b) return;
+  $$('#tabs button').forEach(x => x.classList.toggle('on', x === b));
+  $$('.pane').forEach(p => p.classList.toggle('on', p.dataset.pane === b.dataset.p));
+});
+$('treats').addEventListener('click', e => {
+  const c = e.target.closest('.chip'); if(!c) return;
+  S.treat = c.dataset.t;
+  $$('#treats .chip').forEach(x => x.classList.toggle('on', x === c));
+});
+
+/* ---- transport ---- */
+$('play').onclick = () => transport.toggle();
+$('stop').onclick = () => { transport.pause(); transport.seek(state.inPt); };
+$('tap').onclick  = doTap;
+$('mark').onclick = () => {
+  const i = lineAt(transport.time);
+  if(i < 0){ DIAG.say('No card under the playhead to bracket.', 's-warn'); return; }
+  state.inPt = state.lines[i].t;
+  state.outPt = state.lines[i].t + state.lines[i].d;
+  paintRange();
+};
+function paintRange(){
+  $('v-in').textContent = fmt(state.inPt);
+  $('v-out').textContent = state.outPt === null ? '—' : fmt(state.outPt);
+}
+$('setin').onclick    = () => { state.inPt = transport.time; paintRange(); };
+$('setout').onclick   = () => { state.outPt = transport.time; paintRange(); };
+$('clrrange').onclick = () => { state.inPt = 0; state.outPt = null; paintRange(); };
+
+/* ---- local audio ---- */
+$('audiofile').addEventListener('change', async e => {
+  const f = e.target.files && e.target.files[0];
+  if(!f) return;
+  if(audio.src) URL.revokeObjectURL(audio.src);
+  audio.src = URL.createObjectURL(f);
+  audio.load();
+  state.file = f;
+  AUD.kind = 'file';
+  DIAG.set('d-audio', f.name.length > 26 ? f.name.slice(0,24) + '…' : f.name, 's-ok');
+  DIAG.say('Decoding ' + f.name + ' …');
+  state.peaks = null; state.beats = []; state.bpm = 0;
+  refreshDiag();
+});
+$('dropaudio').onclick = () => {
+  if(audio.src) URL.revokeObjectURL(audio.src);
+  audio.removeAttribute('src'); audio.load();
+  state.file = null; state.peaks = null; state.beats = []; state.bpm = 0;
+  DIAG.set('d-audio','none','s-warn'); refreshDiag();
+};
+audio.addEventListener('loadedmetadata', () => { refreshDiag(); DIAG.say('Track ready, ' + audio.duration.toFixed(1) + 's. Press play, then tap the cards in — or run Detect beats.', 's-ok'); });
+audio.addEventListener('ended', () => { transport.playing = false; syncPlayBtn(); });
+audio.addEventListener('error', () => {
+  const codes = {1:'aborted', 2:'network error', 3:'decode failed', 4:'format not supported'};
+  const why = codes[audio.error && audio.error.code] || 'unknown error';
+  DIAG.set('d-audio', why, 's-bad');
+  DIAG.say('Audio failed: ' + why + '.\nTry MP3, M4A or WAV. A DRM-protected download from Spotify or Apple Music cannot be read by any browser — that is what the tab capture button is for.', 's-bad');
+});
+
+$('captab').onclick  = captureTab;
+$('capmic').onclick  = captureMic;
+$('capstop').onclick = () => stopCapture();
+
+/* ---- spotify ---- */
+$('spconnect').onclick = () => SP.connect();
+$('splogout').onclick  = () => SP.logout('signed out');
+$('spplay').onclick    = () => SP.control(SP.playing ? 'pause' : 'play');
+$('spnext').onclick    = () => SP.control('next');
+$('spprev').onclick    = () => SP.control('prev');
+$('spsync').onclick    = () => { SP.anchor = null; SP.poll(); DIAG.say('Re-anchored to Spotify\'s reported position.', 's-ok'); };
+$('spid').addEventListener('change', () => { SP.id = $('spid').value.trim(); SP.save(); });
+$('artbg').onclick = useArtwork;
+
+/* ---- analysis ---- */
+$('detect').onclick = async () => {
+  if(!state.file){ DIAG.say('Beat detection reads raw samples, so it needs a local file.', 's-warn'); return; }
+  DIAG.say('Decoding and scanning for onsets …');
+  try{
+    const buf = await state.file.arrayBuffer();
+    const r = await analyseBuffer(buf);
+    state.beats = r.beats; state.bpm = r.bpm; state.peaks = r.peaks;
+    AUD.env = r.env; AUD.envRate = r.envRate;
+    DIAG.say('Found ' + r.beats.length + ' onsets, tempo around ' + r.bpm + ' BPM. Waveform is on the timeline; turn on Snap and drag cards onto the grid.', 's-ok');
+  }catch(e){
+    DIAG.say('Analysis failed: ' + e.message, 's-bad');
+  }
+  refreshDiag();
+};
+let tapTimes = [];
+$('taptempo').onclick = () => {
+  const now = performance.now()/1000;
+  tapTimes = tapTimes.filter(t => now - t < 3).concat(now);
+  if(tapTimes.length < 3){ DIAG.say('Keep tapping — ' + tapTimes.length + ' of 3.', 's-warn'); return; }
+  let sum = 0;
+  for(let i=1;i<tapTimes.length;i++) sum += tapTimes[i] - tapTimes[i-1];
+  const per = sum/(tapTimes.length-1);
+  state.bpm = Math.round(60/per*10)/10;
+  const start = transport.time;
+  state.beats = [];
+  for(let t = start % per; t < duration(); t += per) state.beats.push(t);
+  state.grid = true; $('gridchip').classList.add('on');
+  DIAG.say(state.bpm + ' BPM from ' + tapTimes.length + ' taps. Grid laid from the playhead.', 's-ok');
+  refreshDiag();
+};
+$('snapchip').onclick = e => { state.snap = !state.snap; e.target.classList.toggle('on', state.snap); };
+$('gridchip').onclick = e => { state.grid = !state.grid; e.target.classList.toggle('on', state.grid); };
+
+/* ---- script ---- */
+let deb;
+$('script').addEventListener('input', () => { clearTimeout(deb); deb = setTimeout(() => applyScript(), 320); });
+$('script').addEventListener('focus', pushHistory, {once:false});
+$('split').onclick     = splitLines;
+$('retime').onclick    = spaceEvenly;
+$('fillgaps').onclick  = closeGaps;
+$('snapbeats').onclick = snapAll;
+$('clear').onclick     = stripTimings;
+$('lrcout').onclick    = toLrc;
+$('lrcin').onclick     = () => $('lrcfile').click();
+$('lrcfile').addEventListener('change', async e => { const f = e.target.files[0]; if(f) fromLrc(await f.text()); });
+
+const nudge = dt => {
+  if(state.sel < 0){ DIAG.say('Select a card first — click its block on the timeline.', 's-warn'); return; }
+  pushHistory();
+  state.lines[state.sel].t = Math.max(0, state.lines[state.sel].t + dt);
+  state.lines.sort((a,b) => a.t - b.t);
+  syncScript();
+};
+$('nudgeL').onclick = () => nudge(-0.05);
+$('nudgeR').onclick = () => nudge(0.05);
+$('dupline').onclick = () => {
+  if(state.sel < 0) return;
+  pushHistory();
+  const l = state.lines[state.sel];
+  state.lines.splice(state.sel+1, 0, {t:l.t + l.d, d:l.d, text:l.text});
+  syncScript();
+};
+$('delline').onclick = () => {
+  if(state.sel < 0) return;
+  pushHistory();
+  state.lines.splice(state.sel,1);
+  state.sel = Math.min(state.sel, state.lines.length-1);
+  syncScript();
+};
+
+/* ---- images ---- */
+async function ingest(files){
+  const list = Array.from(files);
+  if(!list.length) return;
+  let bad = 0;
+  for(const f of list){ try{ await addMedia(f); }catch(e){ bad++; } }
+  paintThumbs(); refreshDiag();
+  DIAG.say(media.length + ' plate' + (media.length>1?'s':'') + ' loaded' + (bad ? ', ' + bad + ' rejected' : '') + '. Switch Assignment to change plate per line or on a timer.', bad ? 's-warn' : 's-ok');
+}
+$('imgin').addEventListener('change', e => ingest(e.target.files));
+$('clearimg').onclick = clearMedia;
+['dragenter','dragover'].forEach(k => $('drop').addEventListener(k, e => { e.preventDefault(); $('drop').classList.add('hot'); }));
+['dragleave','drop'].forEach(k => $('drop').addEventListener(k, e => { e.preventDefault(); $('drop').classList.remove('hot'); }));
+$('drop').addEventListener('drop', e => { if(e.dataTransfer && e.dataTransfer.files) ingest(e.dataTransfer.files); });
+document.addEventListener('dragover', e => e.preventDefault());
+document.addEventListener('drop', e => e.preventDefault());
+
+/* ---- export ---- */
+$('rec').onclick   = () => state.recording ? stopRecord() : startRecord();
+$('png').onclick   = savePng;
+$('sheet').onclick = contactSheet;
+$('qualchip').onclick = e => { S.quality = S.quality >= 1 ? .55 : 1; e.target.classList.toggle('on', S.quality >= 1); e.target.textContent = S.quality >= 1 ? 'Full-res preview' : 'Fast preview'; setRatio(S.ratio); };
+$('guidechip').onclick = e => { S.guides = !S.guides; e.target.classList.toggle('on', S.guides); };
+
+/* ---- projects ---- */
+$('psave').onclick = () => {
+  const name = $('pname').value.trim();
+  if(!name){ DIAG.say('Give the edit a name before saving it.', 's-warn'); return; }
+  const p = readProjects(); p[name] = projectBlob(); writeProjects(p); listProjects();
+  $('pslots').value = name;
+  DIAG.say('Saved "' + name + '". The look and the timings are stored; the track and the plates are not.', 's-ok');
+};
+$('pload').onclick = () => { const k = $('pslots').value; if(!k) return; loadBlob(readProjects()[k]); };
+$('pdel').onclick  = () => { const k = $('pslots').value; if(!k) return; const p = readProjects(); delete p[k]; writeProjects(p); listProjects(); DIAG.say('Deleted "' + k + '".', 's-warn'); };
+$('pexport').onclick = () => download(new Blob([JSON.stringify(projectBlob(),null,2)],{type:'application/json'}), ($('pname').value.trim()||'kinetic') + '.json');
+$('pimport').addEventListener('change', async e => { const f = e.target.files[0]; if(!f) return; try{ loadBlob(JSON.parse(await f.text())); }catch(err){ DIAG.say('That JSON would not parse: ' + err.message, 's-bad'); } });
+
+$('undo').onclick = undo;
+$('help').onclick = () => DIAG.say(
+  'Space play/pause · ←/→ seek 1s (Shift 5s) · ,/. step one frame\n' +
+  'T arm or fire a tap · Z take back the last tap · Esc stop tapping\n' +
+  '[ / ] nudge the selected card 50ms · G safe guides · Ctrl+Z undo\n' +
+  'Click a timeline block to select and seek; drag it to move, drag its right edge to stretch.');
+
+/* ---- keyboard ---- */
+addEventListener('keydown', e => {
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+  if(typing && e.key !== 'Escape') return;
+  const big = e.shiftKey ? 5 : 1;
+  switch(e.key){
+    case ' ': e.preventDefault(); transport.toggle(); break;
+    case 'ArrowLeft':  e.preventDefault(); transport.seek(transport.time - big); break;
+    case 'ArrowRight': e.preventDefault(); transport.seek(transport.time + big); break;
+    case ',': transport.seek(transport.time - 1/S.fps); break;
+    case '.': transport.seek(transport.time + 1/S.fps); break;
+    case 't': case 'T': doTap(); break;
+    case 'z': case 'Z': if(e.ctrlKey || e.metaKey){ e.preventDefault(); undo(); } else if(TAP.on) untap(); else undo(); break;
+    case '[': nudge(-0.05); break;
+    case ']': nudge(0.05); break;
+    case 'g': case 'G': S.guides = !S.guides; $('guidechip').classList.toggle('on', S.guides); break;
+    case 'Escape': if(TAP.on) endTap('Tap mode off.'); break;
+  }
+});
+
+/* ================================================================== init */
+FONTS.forEach(f => { const o = document.createElement('option'); o.value = f.id; o.textContent = f.label; $('font').appendChild(o); });
+S.clocksrc = 'auto';
+$('spuri').textContent = location.protocol === 'file:' ? 'unavailable on file:// — serve the folder over http first' : SP.redirectUri;
+
+$('script').value =
+  'Paste your lyrics here\n' +
+  'One card per row\n' +
+  'Four to *six* words each\n' +
+  'Then tap the timing in';
+
+setRatio(S.ratio);
+syncControls();
+applyScript(true);
+paintRange();
+listProjects();
+paintThumbs();
+refreshDiag();
+
+SP.load();
+if(SP.id) $('spid').value = SP.id;
+SP.handleRedirect().then(() => { if(SP.token) SP.start(); });
+
+sizeTimeline();
+if(window.ResizeObserver) new ResizeObserver(sizeTimeline).observe(tlWrap);
+else addEventListener('resize', sizeTimeline);
+
+if(document.fonts && document.fonts.ready){
+  Promise.all(FONTS.map(f => document.fonts.load(fontCss(f.id, 80)).catch(() => null)))
+    .then(() => document.fonts.ready)
+    .then(() => {
+      const loaded = FONTS.filter(f => faceReady(f.id)).length;
+      measureCache.clear();
+      DIAG.set('d-font', loaded + '/' + FONTS.length, loaded > 2 ? 's-ok' : 's-warn');
+      if(loaded < FONTS.length && !faceReady(S.font)) DIAG.say('"' + (FAM[S.font]||'system') + '" did not arrive, so the stage is drawing in a fallback face. Pick another, or check whether Google Fonts is reachable from here.', 's-warn');
+      else if(loaded <= 2) DIAG.say('Only the system face resolved — you are offline or Google Fonts is blocked. Type still renders, just not in the face you picked.', 's-warn');
+    });
+} else {
+  DIAG.set('d-font','unknown','s-warn');
+}
+if(!HAS_TRACKING) DIAG.set('d-font', 'no canvas tracking', 's-warn');
+
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
