@@ -3036,6 +3036,10 @@ async function loadBlob(j){
   setRatio(S.ratio);
   DIAG.say('Loaded "' + (j.name || 'untitled') + '" — looking for its media…', 's-ok');
 
+  /* Loading anything at all settles the question the restore bar was asking,
+     so it stops asking it. */
+  $('restorebar').classList.remove('on');
+
   clearMediaRefs();
   const got   = await restorePlates(j.plates);
   const track = await restoreTrack(j.track);
