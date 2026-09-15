@@ -1875,9 +1875,20 @@ async function analyseBuffer(arrayBuf){
    Audio is windowed here rather than handed over whole, which buys three
    things: progress that means something, a Cancel that actually stops, and a
    memory ceiling that a phone can live with. */
+/* A throw from pipeline() that mentions any of these is the download, not the
+   device. Matched loosely on purpose: every layer between here and the bytes
+   words it differently. */
+const NETWORKY = /failed to fetch|networkerror|network error|load model|could not locate|unexpected token|err_|fetch failed|\b4\d\d\b|\b5\d\d\b/i;
+
 const ASR = {
-  lib:null, pipe:null, model:null, busy:false, cancel:false,
-  CDN:'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.5',
+  lib:null, pipe:null, model:null, device:null, busy:false, cancel:false,
+  /* The bundled file, explicitly — not the bare package path. The package's
+     own browser entry (dist/transformers.web.js) imports "onnxruntime-web" by
+     bare specifier, which no browser can resolve without an import map, so
+     both it and the bare path fail at import. dist/transformers.min.js is the
+     one self-contained build. Pinned, because an unpinned CDN URL is a
+     dependency that can change under you. */
+  CDN:'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.5/dist/transformers.min.js',
   WIN:30, OVERLAP:3          // seconds per window, and how much they share
 };
 
@@ -1927,23 +1938,40 @@ async function loadAsr(model, onProgress){
      off a CDN URL, and that is one more thing to fail on a locked-down network
      for a benefit the windowing already mostly delivers — the loop yields
      between windows, so the stage keeps painting and Stop stays live. */
-  const device = navigator.gpu ? 'webgpu' : 'wasm';
-  try{
-    ASR.pipe = await pipeline('automatic-speech-recognition', model, {
-      dtype: device === 'webgpu' ? 'fp32' : 'q8',
-      device,
-      progress_callback: p => {
-        if(!onProgress) return;
-        if(p.status === 'progress' && p.total) onProgress(p.file || '', p.loaded/p.total);
-        else if(p.status === 'ready') onProgress('', 1);
+  const attempt = device => pipeline('automatic-speech-recognition', model, {
+    dtype: device === 'webgpu' ? 'fp32' : 'q8',
+    device,
+    progress_callback: p => {
+      if(!onProgress) return;
+      if(p.status === 'progress' && p.total) onProgress(p.file || '', p.loaded/p.total);
+      else if(p.status === 'ready') onProgress('', 1);
+    }
+  });
+
+  /* Two failures wear the same coat here. The library is loaded and running,
+     so a throw at this point is either the weights not arriving or the backend
+     not starting — and telling somebody their GPU is broken when their network
+     ate the download sends them to fix the wrong thing. */
+  const order = navigator.gpu ? ['webgpu', 'wasm'] : ['wasm'];
+  let last;
+  for(const device of order){
+    try{
+      ASR.pipe = await attempt(device);
+      ASR.model = model;
+      ASR.device = device;
+      return ASR.pipe;
+    }catch(e){
+      last = e;
+      if(NETWORKY.test(String((e && e.message) || e))){
+        ASR.pipe = null;
+        throw new Error('the model files would not download from huggingface.co. The library itself loaded, so the page is online — the model host is blocked or unreachable from this network. Nothing else in the app needs it.');
       }
-    });
-  }catch(e){
-    ASR.pipe = null;
-    throw new Error('the model would not start on this device (' + device + '): ' + e.message);
+      /* not the network: a backend that will not start. Fall through to the
+         next one rather than giving up on a machine that can still do it. */
+    }
   }
-  ASR.model = model;
-  return ASR.pipe;
+  ASR.pipe = null;
+  throw new Error('no backend would run the model here (tried ' + order.join(', ') + '): ' + ((last && last.message) || last));
 }
 
 /* Whisper loops when it runs out of speech — an instrumental break comes back
@@ -2027,7 +2055,9 @@ async function runTranscribe(){
     const pipe = await loadAsr(model, (file, frac) => paintAsrUi(frac*.35, 'model ' + Math.round(frac*100) + '%'));
     if(ASR.cancel) throw {cancelled:true};
 
-    DIAG.say('Listening to ' + duration.toFixed(0) + 's of audio' + (lang ? ' as ' + $('asrlang').selectedOptions[0].textContent : ', detecting the language') + '. Watch the bar; Stop ends it after the window it is on.', 's-warn');
+    DIAG.set('d-asr', 'running on ' + ASR.device, 's-warn');
+    DIAG.say('Listening on ' + (ASR.device === 'webgpu' ? 'the GPU' : 'the CPU — slower; a WebGPU browser is much faster') + '. ' +
+      'Reading ' + duration.toFixed(0) + 's of audio' + (lang ? ' as ' + $('asrlang').selectedOptions[0].textContent : ', detecting the language') + '. Watch the bar; Stop ends it after the window it is on.', 's-warn');
 
     const win = Math.round(ASR.WIN*rate), hop = Math.round((ASR.WIN - ASR.OVERLAP)*rate);
     const opts = {return_timestamps:true, task:'transcribe'};
@@ -2056,7 +2086,7 @@ async function runTranscribe(){
       covered = Math.max(covered, offset + (ASR.WIN - ASR.OVERLAP));
       const done = Math.min(1, (start + win)/pcm.length);
       paintAsrUi(.35 + done*.65, Math.round(done*100) + '%');
-      DIAG.set('d-asr', Math.round(done*100) + '% · ' + all.length + ' lines', 's-warn');
+      DIAG.set('d-asr', Math.round(done*100) + '% · ' + ASR.device, 's-warn');
       await new Promise(r => setTimeout(r, 0));        // let the stage paint between windows
     }
 
