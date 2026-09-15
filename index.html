@@ -443,6 +443,7 @@
           <button id="artbg" class="sm">Use Spotify art</button>
           <button id="clearimg" class="sm">Remove all</button>
         </div>
+        <button id="artopen" class="sm" hidden>Open the cover to save it →</button>
       </div>
 
       <div class="grp">
@@ -1936,11 +1937,24 @@ async function loadAsr(model, onProgress){
     try{
       ASR.lib = await import(/* webpackIgnore: true */ ASR.CDN);
     }catch(e){
-      throw new Error('could not load the speech library from jsDelivr. ' +
-        'Either this machine is offline, or the CDN is blocked here. Everything else in the app works without it.');
+      console.error('[kinetic] speech library import failed:', e);
+      /* The underlying message is the whole diagnosis here — "Failed to fetch"
+         is a blocked host, a bare CORS complaint is a proxy rewriting the
+         response — so it is passed through rather than tidied away. */
+      throw new Error('the speech library would not load from jsDelivr: ' + ((e && e.message) || e) +
+        '\nAd blockers and shields are the usual cause — Brave Shields, uBlock and similar block CDN script hosts on some lists. ' +
+        'Allow cdn.jsdelivr.net and huggingface.co for this site, then try again. The rest of the app does not need either.');
     }
   }
-  const { pipeline } = ASR.lib;
+  const { pipeline, env } = ASR.lib;
+
+  /* Without this the library probes this page's own origin for a local copy of
+     the model first, which is a spray of 404s against whatever static server
+     is serving the folder before it ever reaches the real host. */
+  if(env){
+    env.allowLocalModels = false;
+    env.useBrowserCache = true;
+  }
   /* Inference is deliberately left on the main thread. Running it in a worker
      would keep the page smooth, but it means the library spinning up a worker
      off a CDN URL, and that is one more thing to fail on a locked-down network
@@ -1970,15 +1984,19 @@ async function loadAsr(model, onProgress){
       return ASR.pipe;
     }catch(e){
       last = e;
+      console.error('[kinetic] ' + device + ' pipeline failed:', e);
       if(NETWORKY.test(String((e && e.message) || e))){
         ASR.pipe = null;
-        throw new Error('the model files would not download from huggingface.co. The library itself loaded, so the page is online — the model host is blocked or unreachable from this network. Nothing else in the app needs it.');
+        throw new Error('the model files would not download from huggingface.co: ' + ((e && e.message) || e) +
+          '\nThe library itself loaded, so the page is online and the problem is that host specifically. ' +
+          'A blocker or shields setting is the usual cause — allow huggingface.co and cdn-lfs.huggingface.co for this site.');
       }
       /* not the network: a backend that will not start. Fall through to the
          next one rather than giving up on a machine that can still do it. */
     }
   }
   ASR.pipe = null;
+  console.error('[kinetic] every backend failed:', last);
   throw new Error('no backend would run the model here (tried ' + order.join(', ') + '): ' + ((last && last.message) || last));
 }
 
@@ -2119,7 +2137,9 @@ async function runTranscribe(){
       DIAG.say('Stopped.', 's-warn');
       DIAG.set('d-asr', 'stopped', 's-warn');
     } else {
-      DIAG.say('Transcription failed: ' + (e && e.message ? e.message : e), 's-bad');
+      console.error('[kinetic] transcription failed:', e);
+      DIAG.say('Transcription failed: ' + (e && e.message ? e.message : e) +
+               '\nThe browser console (F12) has the underlying error if this is not enough to go on.', 's-bad');
       DIAG.set('d-asr', 'failed', 's-bad');
     }
   }finally{
@@ -2383,7 +2403,13 @@ async function useArtwork(){
     await addRemoteImage(SP.track.art, SP.track.name + ' — cover');
     paintThumbs(); refreshDiag();
     if(state.tainted){
-      DIAG.say('Artwork loaded, but Spotify\'s CDN did not send CORS headers for it, so the canvas is now tainted and recording is disabled.\nScreenshot the cover and drop it in as a file to get the export back.', 's-warn');
+      /* Nothing client-side can untaint this: the CDN decides, and it says no.
+         So the next best thing is making the two-step fix one click shorter —
+         open the image, save it, drop it back in as a file. */
+      $('artopen').hidden = false;
+      DIAG.say('Artwork loaded, but Spotify\'s CDN sends no CORS headers for it, so the canvas is tainted and both export and stills are now off. ' +
+               'Nothing in the page can undo that — the fix is to hold the file yourself: press "Open the cover to save it", save the image, then drop it into Plates. ' +
+               'Same picture, clean canvas, export back — and it persists across reloads, which the remote one never does.', 's-warn');
     } else {
       DIAG.say('Cover art added as a plate. Blur it, tint it, and put the type on top.', 's-ok');
     }
@@ -3774,6 +3800,10 @@ $('spprev').onclick    = () => SP.control('prev');
 $('spsync').onclick    = () => { SP.anchor = null; SP.poll(); DIAG.say('Re-anchored to Spotify\'s reported position.', 's-ok'); };
 $('spid').addEventListener('change', () => { SP.id = $('spid').value.trim(); SP.save(); });
 $('artbg').onclick = useArtwork;
+$('artopen').onclick = () => {
+  if(SP.track && SP.track.art) window.open(SP.track.art, '_blank', 'noopener');
+  else DIAG.say('No cover to open — connect Spotify and start a track first.', 's-warn');
+};
 
 /* ---- analysis ---- */
 $('detect').onclick = async () => {
