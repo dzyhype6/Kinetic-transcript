@@ -59,15 +59,25 @@ npx serve .        # then open the 127.0.0.1 address it prints
 
 ## Running it
 
+**Serve it.** Don't open the file directly.
+
 ```sh
 git clone <this repo> && cd kinetic-type
-open index.html                  # everything except Spotify
-# or
-npx serve .                      # everything
+npx serve .            # then open the 127.0.0.1 address it prints
+# or, with no node:
+python3 -m http.server 8000
 ```
 
-Chrome or Edge on desktop for the full set. Firefox records but cannot share
-tab audio. Safari records too, from 17.4 — as MP4 rather than WebM.
+Opening `index.html` off the disk still works for the type, the plates and the
+export, but two things break on a `file://` page and neither fails obviously:
+**transcription**, because browsers refuse to load a module from a `file://`
+origin, and **Spotify**, which will not redirect back to one. Serving the
+folder costs one command and avoids both.
+
+Chrome or Edge on desktop for the full set. Firefox has no tab-audio capture.
+Safari records from 17.4 — as MP4 rather than WebM — and offline render needs
+WebCodecs, which means Chrome, Edge, Safari 16.4+, or a recent Firefox;
+without it the app falls back to real-time recording on its own.
 
 ## Phone and laptop
 
