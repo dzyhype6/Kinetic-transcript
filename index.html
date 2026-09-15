@@ -3482,7 +3482,10 @@ function offerRestore(){
    only deletes what it can prove is unreachable. */
 async function sweepVault(){
   const keys = await VAULT.keys();
-  if(!keys.length) return;
+  /* An empty vault used to return here, which skipped the report and left the
+     panel showing a dash forever — "nothing stored yet" and "this line is
+     broken" looked identical. */
+  if(!keys.length) return reportStorage();
   const live = new Set();
   const note = j => {
     if(!j) return;
@@ -3503,6 +3506,7 @@ async function sweepVault(){
 async function reportStorage(){
   const keys = await VAULT.keys();
   if(!keys) return;
+  if(!keys.length) return DIAG.set('d-store', 'nothing stored yet', '');
   let line = keys.length + (keys.length === 1 ? ' file' : ' files');
   if(navigator.storage && navigator.storage.estimate){
     try{
