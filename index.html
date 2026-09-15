@@ -3956,13 +3956,30 @@ document.addEventListener('dragover', e => e.preventDefault());
 document.addEventListener('drop', e => e.preventDefault());
 
 /* ---- export ---- */
+/* One owner for the chip's appearance. It used to be set in three places and
+   this function was the last to run, so it wiped the "no encoder here" state
+   and left the control looking live on a browser that cannot do it at all —
+   click it and the label promised an offline render while the real-time
+   recorder did the work. */
 function paintRenderUi(frac, note){
   const live = OFF.busy || state.recording;
-  $('offchip').classList.toggle('off', live);
+  const can  = !!offlineCodec();
+  const chip = $('offchip');
+  chip.classList.toggle('on',  can && S.offline);
+  chip.classList.toggle('hot', can && S.offline);
+  chip.classList.toggle('off', live || !can);
+
+  $('offhint').textContent =
+      !can      ? (window.isSecureContext === false
+                    ? 'needs a secure page — plain http on a LAN address will not do'
+                    : 'needs WebCodecs — not in this browser')
+    : S.offline ? 'frame-exact, runs unattended'
+    :             'films the preview as it plays';
+
   $('reccancel').hidden = !OFF.busy;
   if(frac !== undefined) $('renderbar').value = Math.round(clamp(frac,0,1)*100);
   if(note !== undefined) $('v-render').textContent = note;
-  if(!live) $('rec').textContent = S.offline && offlineCodec() ? '⚡ Render range' : '● Record range';
+  if(!live) $('rec').textContent = (can && S.offline) ? '⚡ Render range' : '● Record range';
 }
 
 async function startOffline(){
@@ -4022,9 +4039,6 @@ $('reccancel').onclick = () => { OFF.cancel = true; };
 $('offchip').onclick = () => {
   if(!offlineCodec()) return;
   S.offline = !S.offline;
-  $('offchip').classList.toggle('on', S.offline);
-  $('offchip').classList.toggle('hot', S.offline);
-  $('offhint').textContent = S.offline ? 'frame-exact, runs unattended' : 'films the preview as it plays';
   paintRenderUi();
 };
 $('png').onclick   = savePng;
@@ -4125,14 +4139,17 @@ if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
   if(offlineCodec()){
     DIAG.set('d-rec', 'webm · offline', 's-ok');
   } else {
-    /* No WebCodecs: real-time recording is the only way out, so say so once
-       rather than letting somebody wonder why the fast option is missing. */
+    /* No encoder reachable: real-time recording is the only way out, so say so
+       once rather than letting somebody wonder why the fast option is missing.
+       On a phone this is nearly always the origin rather than the browser —
+       WebCodecs is gated on a secure context, and a LAN address over plain
+       http is not one. */
     S.offline = false;
-    $('offchip').classList.remove('on','hot');
-    $('offchip').classList.add('off');
-    $('offhint').textContent = 'needs WebCodecs — not in this browser';
     const m = window.MediaRecorder ? pickMime() : '';
     DIAG.set('d-rec', m ? m.split(';')[0].replace('video/','') + ' · real time' : 'unavailable', m ? '' : 's-bad');
+    if(window.isSecureContext === false){
+      DIAG.say('This page is on a plain http address that is not localhost, so the browser withholds its secure-context features: no offline render, no microphone, and no Spotify sign-in. Recording in real time still works, and so does everything else. Serve over https, or reach it on 127.0.0.1, to get them back.', 's-warn');
+    }
   }
   paintRenderUi(0, '—');
 })();
