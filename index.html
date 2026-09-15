@@ -14,13 +14,21 @@
     --hot:#FF4A17; --field:#1433C4; --ink:#0B0E1C;
     --ok:#39D98A; --warn:#FFC24A; --bad:#FF5A5A; --spot:#1DB954;
     --r:4px;
+    /* how tall the pinned preview is on a phone; the ⤢ button swaps it */
+    --stageh:34dvh;
+    --safe-b:env(safe-area-inset-bottom,0px);
+    --safe-l:env(safe-area-inset-left,0px);
+    --safe-r:env(safe-area-inset-right,0px);
   }
   *{box-sizing:border-box;margin:0;padding:0}
   html,body{height:100%}
+  html{-webkit-text-size-adjust:100%}
   body{
     background:var(--bg);color:var(--bone);
     font-family:'Archivo',system-ui,-apple-system,sans-serif;font-weight:500;font-size:13px;
     -webkit-font-smoothing:antialiased;
+    /* an accidental pull-to-refresh would throw away the whole in-memory edit */
+    overscroll-behavior:none;
   }
   ::selection{background:var(--hot);color:#14060a}
 
@@ -39,13 +47,18 @@
   canvas#stage{
     max-width:100%;max-height:100%;display:block;
     box-shadow:0 24px 70px rgba(0,0,0,.65);border-radius:3px;background:#000;
-    touch-action:none;
+    /* manipulation, not none: the stage is the tallest thing on a phone and
+       must not swallow the page's own scrolling. It only becomes a tap target
+       while tap-to-time is armed. */
+    touch-action:manipulation;
   }
+  body.tapping canvas#stage{cursor:pointer;outline:2px solid var(--hot);outline-offset:3px}
   .hud{
     position:absolute;top:22px;left:22px;right:22px;display:flex;gap:8px;
     pointer-events:none;font-size:10.5px;letter-spacing:.12em;font-weight:700;text-transform:uppercase;
   }
   .hud .tag{background:rgba(10,12,19,.82);border:1px solid var(--line);padding:4px 8px;border-radius:3px;color:var(--dim)}
+  .hud #h-track{max-width:min(46%,360px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-transform:none;letter-spacing:.04em}
   .hud .tag b{color:var(--bone);font-weight:700}
   .hud .rec{color:var(--bad);border-color:var(--bad);animation:blink 1s steps(2) infinite}
   @keyframes blink{50%{opacity:.35}}
@@ -64,6 +77,7 @@
     background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r);
     padding:9px 11px;cursor:pointer;text-align:center;white-space:nowrap;
     transition:background .12s,border-color .12s,color .12s;display:inline-flex;align-items:center;justify-content:center;gap:6px;
+    touch-action:manipulation;-webkit-tap-highlight-color:transparent;user-select:none;
   }
   button:hover:not(:disabled),.btn:hover{background:#212637;border-color:var(--line-2)}
   button:focus-visible,.btn:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--hot);outline-offset:1px}
@@ -75,7 +89,10 @@
   button:disabled{opacity:.35;cursor:not-allowed}
   button.wide{flex:1}
   button.sm{padding:6px 8px;font-size:11px}
-  input[type=file]{display:none}
+  button[hidden],.only-compact{display:none}
+  /* Not display:none — a hidden-that-way file input is not reliably
+     clickable through its <label> on iOS Safari. */
+  input[type=file]{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 
   select,input[type=text],input[type=number]{
     background:var(--panel-2);color:var(--bone);border:1px solid var(--line);border-radius:var(--r);
@@ -100,7 +117,7 @@
   }
   .tabs button:hover{background:var(--panel-2);color:var(--bone)}
   .tabs button.on{color:var(--bone);border-bottom-color:var(--hot);background:transparent}
-  .pane{flex:1;min-height:0;overflow-y:auto;padding:14px;display:none;flex-direction:column;gap:14px}
+  .pane{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:14px;display:none;flex-direction:column;gap:14px}
   .pane.on{display:flex}
   .pane::-webkit-scrollbar{width:9px}
   .pane::-webkit-scrollbar-thumb{background:var(--line);border-radius:9px}
@@ -124,18 +141,22 @@
   .chip{
     font-size:11px;font-weight:700;padding:6px 9px;border-radius:20px;cursor:pointer;
     background:var(--panel-2);border:1px solid var(--line);color:var(--dim);user-select:none;
+    touch-action:manipulation;-webkit-tap-highlight-color:transparent;
   }
   .chip:hover{color:var(--bone);border-color:var(--line-2)}
   .chip.on{background:var(--bone);border-color:var(--bone);color:var(--ink)}
   .chip.on.hot{background:var(--hot);border-color:var(--hot);color:#180702}
+  .chip.off{opacity:.4;pointer-events:none}
 
   /* ---------- line editor rows ---------- */
-  .lines{display:flex;flex-direction:column;gap:4px;max-height:340px;overflow-y:auto;padding-right:2px}
+  .lines{display:flex;flex-direction:column;gap:4px;max-height:340px;overflow-y:auto;overscroll-behavior:contain;padding-right:2px}
   .lrow{
     display:grid;grid-template-columns:52px 46px minmax(0,1fr) 26px;gap:5px;align-items:center;
     background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r);padding:5px;
   }
   .lrow.on{border-color:var(--hot)}
+  .lrow.ov{box-shadow:inset 3px 0 0 var(--field)}
+  .grp.off{opacity:.4;pointer-events:none}
   .lrow input{padding:5px 5px;font-size:11px;font-family:ui-monospace,Menlo,monospace}
   .lrow input.txt{font-family:inherit;font-weight:600}
   .lrow .go{cursor:pointer;color:var(--dim);text-align:center;font-size:11px;font-weight:700;padding:5px 0;border-radius:3px}
@@ -154,25 +175,144 @@
   .diag{
     border-top:1px solid var(--line);background:var(--panel);flex:0 0 auto;
     font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:11px;line-height:1.7;
-    max-height:176px;overflow-y:auto;padding:9px 12px;
+    max-height:176px;overflow-y:auto;overscroll-behavior:contain;padding:9px 12px;
   }
+  .diaghead{
+    display:none;width:100%;justify-content:space-between;background:transparent;border:0;padding:4px 0 6px;
+    font-family:inherit;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);
+  }
+  .diaghead:hover{background:transparent;color:var(--bone)}
   .diag .d{display:flex;justify-content:space-between;gap:12px;color:var(--dim)}
   .diag .d span:last-child{text-align:right;color:var(--bone);word-break:break-word}
   .s-ok{color:var(--ok)!important}.s-warn{color:var(--warn)!important}.s-bad{color:var(--bad)!important}
   .diag .msg{display:block;margin-top:6px;padding-top:6px;border-top:1px solid var(--line);color:var(--dim);white-space:pre-wrap}
 
+  .restore{
+    display:none;gap:8px;align-items:center;flex:0 0 auto;
+    padding:9px 12px;border-bottom:1px solid var(--line);
+    background:rgba(255,194,74,.08);border-left:2px solid var(--warn);
+  }
+  .restore.on{display:flex}
+  .restore span{flex:1;font-size:11.5px;color:var(--bone);line-height:1.5}
+  .restore span b{color:var(--warn);font-weight:700}
+
   .bar{display:flex;gap:8px;padding:9px 12px;border-bottom:1px solid var(--line);align-items:center;background:var(--panel);flex:0 0 auto}
   .bar .brand{font-family:'Anton',Impact,sans-serif;font-size:15px;letter-spacing:.02em;text-transform:uppercase;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .bar .brand i{color:var(--hot);font-style:normal}
 
-  @media (max-width:900px){
-    .app{grid-template-columns:1fr;height:auto;min-height:100dvh}
-    .left{border-right:0;border-bottom:1px solid var(--line)}
-    .stagewrap{padding:12px;min-height:56dvh}
-    .right{min-height:60dvh}
-    .pane{max-height:none}
+  /* ---------- anything driven by a finger ----------
+     Keyed off the pointer, not the width, so a touchscreen laptop gets the
+     bigger targets and a phone with a mouse paired to it does not. 44px is
+     the smallest thing a thumb hits reliably; 16px is the text size below
+     which iOS Safari zooms the whole page when an input takes focus.
+     This block comes first so the layout blocks underneath can override the
+     handful of sizes that have to bend on a small screen. */
+  @media (pointer:coarse){
+    button,.btn{padding:12px 12px;font-size:13px;min-height:44px}
+    button.sm{padding:10px 10px;font-size:12px;min-height:40px}
+    .bar button{min-width:44px}
+    .chip{display:inline-flex;align-items:center;min-height:38px;padding:9px 14px;font-size:12.5px}
+    select,input[type=text],input[type=number]{font-size:16px;padding:11px 9px;min-height:44px}
+    textarea{font-size:16px;min-height:190px}
+    input[type=color]{width:44px;height:44px}
+    input[type=range]{height:34px}
+    .tabs button{padding:15px 6px;font-size:11px;min-height:46px}
+    .tl{height:88px;cursor:default}
+    .lrow{grid-template-columns:64px 56px minmax(0,1fr) 38px;gap:6px;padding:6px}
+    .lrow input{font-size:16px;padding:8px 6px}
+    .lrow .go{padding:11px 0;font-size:14px}
+    .lines{max-height:none}
+    .thumb .x{font-size:13px;padding:7px 9px}
+    .drop{padding:22px 16px;font-size:12.5px}
+    .diag{font-size:12px}
+    /* :hover sticks after a tap on a touchscreen, so give it back to real pointers */
+    button:hover:not(:disabled),.btn:hover{background:var(--panel-2);border-color:var(--line)}
+    button.primary:hover:not(:disabled){background:var(--hot)}
+    button.armed:hover{background:var(--bone)}
+    .chip:hover{color:var(--dim);border-color:var(--line)}
+    .chip.on:hover{color:var(--ink)}
   }
-  @media (prefers-reduced-motion:reduce){ .hud .rec{animation:none} }
+
+  /* ---------- phone & tablet, upright ----------
+     One column, but the preview stays pinned at the top and only the panel
+     scrolls underneath it. A lyric editor where moving a slider scrolls the
+     picture out of sight is not an editor. */
+  @media (max-width:900px) and (min-height:500px){
+    .app{
+      grid-template-columns:1fr;
+      grid-template-rows:auto minmax(0,1fr);
+      height:100vh;height:100dvh;
+      padding-left:var(--safe-l);padding-right:var(--safe-r);
+    }
+    .left{border-right:0;border-bottom:1px solid var(--line);min-height:0}
+    .stagewrap{flex:0 0 auto;height:var(--stageh);padding:10px;transition:height .18s ease,padding .18s ease}
+    /* At the large size the preview is the job, so the diagnostics strip
+       stands down rather than leaving the panel a useless sliver. */
+    .app.tall{--stageh:56dvh}
+    .app.tall .diag{display:none}
+    .app.flat{--stageh:0px}
+    .app.flat .stagewrap{padding:0;overflow:hidden}
+    .right{min-height:0}
+    .hud{top:13px;left:13px;right:13px;gap:5px;flex-wrap:wrap;font-size:9px;letter-spacing:.08em}
+    .hud .tag{padding:3px 6px}
+    .transport{padding:8px 10px;gap:7px}
+    .tl{height:72px}
+    .only-compact{display:inline-flex}
+    .bar{padding:6px 11px}
+    .bar .brand{font-size:13px}
+    .thumbs{grid-template-columns:repeat(3,1fr)}
+  }
+
+  /* Short phones have no vertical budget to spare: every strip of chrome
+     comes out of the panel, which is the part you actually work in. */
+  @media (max-width:900px) and (min-height:500px) and (max-height:720px){
+    :root{--stageh:26dvh}
+    .tl{height:64px}
+    .transport{padding:7px 10px;gap:6px}
+  }
+
+  /* ---------- phone on its side ----------
+     Barely any height at all, so go back to two columns and let the stage
+     have the full column. */
+  @media (max-width:900px) and (max-height:499px){
+    .app{
+      grid-template-columns:minmax(0,1fr) minmax(232px,36vw);
+      height:100vh;height:100dvh;
+      padding-left:var(--safe-l);padding-right:var(--safe-r);
+    }
+    .stagewrap{padding:8px}
+    .hud{top:9px;left:9px;right:9px;gap:4px;flex-wrap:wrap;font-size:9px;letter-spacing:.06em}
+    .hud .tag{padding:2px 5px}
+    .transport{padding:6px 8px;gap:6px}
+    .tl{height:50px}
+    .trow{gap:6px}
+    .bar{padding:5px 9px}
+    .bar .brand{font-size:12px}
+    .tabs button{padding:10px 4px;min-height:38px}
+    .thumbs{grid-template-columns:repeat(3,1fr)}
+  }
+
+  /* ---------- the diagnostics strip on a small screen ----------
+     It is the last thing competing for height, so on anything narrow it
+     collapses to its one-line verdict and opens on demand. */
+  @media (max-width:900px){
+    /* Five tabs into a narrow column: the tracking is what stops "Export"
+       sliding off the end into the scroll overflow, where nobody looks. */
+    .tabs button{letter-spacing:.05em;padding-left:3px;padding-right:3px}
+    .diaghead{display:flex}
+    .diag{
+      flex:0 1 auto;max-height:34dvh;
+      padding-bottom:calc(9px + var(--safe-b));
+    }
+    .diag:not(.open){max-height:104px}
+    .diag:not(.open) #diagrows{display:none}
+    .diag:not(.open) .msg{margin-top:0;padding-top:0;border-top:0}
+  }
+
+  @media (prefers-reduced-motion:reduce){
+    .hud .rec{animation:none}
+    .stagewrap{transition:none}
+  }
 </style>
 </head>
 <body>
@@ -187,6 +327,7 @@
         <span class="tag" id="h-ratio">9:16 · <b>1080×1920</b></span>
         <span class="tag" id="h-line">line <b>—</b></span>
         <span class="tag" id="h-fps">—</span>
+        <span class="tag" id="h-track" hidden></span>
         <span class="tag rec" id="h-rec" hidden>● REC</span>
       </div>
     </div>
@@ -197,7 +338,10 @@
         <button id="play" class="primary fix" style="min-width:84px">▶ Play</button>
         <button id="stop" class="fix sm">■</button>
         <button id="tap" class="fix">Tap to time</button>
+        <button id="untapbtn" class="fix sm" hidden title="Take back the last tap (Z)">↶ Undo tap</button>
+        <button id="endtapbtn" class="fix sm" hidden title="Stop tapping (Esc)">Done</button>
         <button id="mark" class="fix sm" title="Set in / out points to the visible line">In/Out</button>
+        <button id="bigger" class="fix sm only-compact" title="Cycle the preview between working size, large, and out of the way">⤢ Bigger</button>
         <span class="clock" id="clock"><b>0:00.00</b> / 0:00.00</span>
       </div>
     </div>
@@ -209,6 +353,12 @@
       <span class="brand">KINETIC <i>TYPE</i></span>
       <button id="undo" class="sm fix" title="Undo (Ctrl+Z)">↺</button>
       <button id="help" class="sm fix" title="Keyboard shortcuts">?</button>
+    </div>
+
+    <div class="restore" id="restorebar">
+      <span>An unsaved edit from <b id="restorewhen">earlier</b> is still here.</span>
+      <button id="restoreyes" class="sm fix">Restore</button>
+      <button id="restoreno" class="sm fix">Discard</button>
     </div>
 
     <div class="tabs" id="tabs">
@@ -287,7 +437,7 @@
       <div class="grp">
         <h4>Plates</h4>
         <label class="drop" id="drop" for="imgin">
-          Drop images or a video clip here<br><span style="opacity:.6">or click to browse — jpg, png, webp, gif, mp4, webm</span>
+          Tap to pick images or a video clip<br><span style="opacity:.6">or drop them here on a desktop — jpg, png, webp, gif, mp4, webm</span>
         </label>
         <input type="file" id="imgin" accept="image/*,video/mp4,video/webm,video/quicktime" multiple>
         <div class="thumbs" id="thumbs"></div>
@@ -295,6 +445,7 @@
           <button id="artbg" class="sm">Use Spotify art</button>
           <button id="clearimg" class="sm">Remove all</button>
         </div>
+        <button id="artopen" class="sm" hidden>Open the cover to save it →</button>
       </div>
 
       <div class="grp">
@@ -430,6 +581,63 @@
     <!-- ---------------- LINES ---------------- -->
     <div class="pane" data-pane="lines">
       <div class="grp">
+        <h4>Transcribe</h4>
+        <div class="r">
+          <select id="asrlang">
+            <option value="">Detect the language</option>
+            <optgroup label="Common here">
+              <option value="sw">Swahili / Kiswahili</option>
+              <option value="en">English</option>
+              <option value="ha">Hausa</option>
+              <option value="yo">Yoruba</option>
+              <option value="so">Somali</option>
+              <option value="am">Amharic</option>
+              <option value="sn">Shona</option>
+              <option value="af">Afrikaans</option>
+              <option value="mg">Malagasy</option>
+              <option value="ln">Lingala</option>
+              <option value="ar">Arabic</option>
+              <option value="fr">French</option>
+              <option value="pt">Portuguese</option>
+            </optgroup>
+            <optgroup label="Everything else">
+              <option value="es">Spanish</option><option value="de">German</option>
+              <option value="it">Italian</option><option value="nl">Dutch</option>
+              <option value="ru">Russian</option><option value="uk">Ukrainian</option>
+              <option value="pl">Polish</option><option value="tr">Turkish</option>
+              <option value="hi">Hindi</option><option value="ur">Urdu</option>
+              <option value="bn">Bengali</option><option value="ta">Tamil</option>
+              <option value="te">Telugu</option><option value="ml">Malayalam</option>
+              <option value="zh">Chinese</option><option value="ja">Japanese</option>
+              <option value="ko">Korean</option><option value="vi">Vietnamese</option>
+              <option value="th">Thai</option><option value="id">Indonesian</option>
+              <option value="ms">Malay</option><option value="tl">Tagalog</option>
+              <option value="fa">Persian</option><option value="he">Hebrew</option>
+              <option value="el">Greek</option><option value="ro">Romanian</option>
+              <option value="hu">Hungarian</option><option value="cs">Czech</option>
+              <option value="sv">Swedish</option><option value="da">Danish</option>
+              <option value="no">Norwegian</option><option value="fi">Finnish</option>
+            </optgroup>
+          </select>
+        </div>
+        <div class="r">
+          <select id="asrmodel">
+            <option value="onnx-community/whisper-base">Base — the usual choice, ~80 MB</option>
+            <option value="onnx-community/whisper-tiny">Tiny — fastest, roughest, ~40 MB</option>
+            <option value="onnx-community/whisper-small">Small — best words, slow, ~250 MB</option>
+          </select>
+        </div>
+        <div class="r">
+          <button id="asrgo" class="wide" disabled>Transcribe the track</button>
+          <button id="asrstop" class="fix sm" hidden>Stop</button>
+        </div>
+        <p class="hint s-warn" id="asrwhy" hidden></p>
+        <div class="fld"><span class="lab">Progress <b id="v-asr">—</b></span>
+          <input type="range" id="asrbar" min="0" max="100" value="0" disabled></div>
+        <p class="hint">Runs <b>on this machine</b> — the track is never uploaded. The model is fetched once and cached, so every run after the first works offline. Whisper was trained on speech, and sung vocals over a full mix are harder than speech: expect a draft to correct rather than a finished script, and expect the <b>timings</b> to be the better half of what you get. A vocal stem or an a cappella transcribes far better than a master. Cards are cut to the word count set under Reshape.</p>
+      </div>
+
+      <div class="grp">
         <h4>Script</h4>
         <textarea id="script" spellcheck="false" autocapitalize="off" autocorrect="off"></textarea>
         <p class="hint">One card per row. <code>start | duration | text</code>, or just the words and let the timing come later. <code>[Chorus]</code> and <code>(intro)</code> rows are dropped. Wrap a word in <code>*stars*</code> to hit it with the accent colour. <code>//</code> forces a line break inside a card.</p>
@@ -465,7 +673,50 @@
           <button id="dupline" class="sm wide">Duplicate</button>
           <button id="delline" class="sm wide">Delete</button>
         </div>
-        <p class="hint">Click a block on the timeline to select and seek. Drag it to move, drag its right edge to stretch. <code>[</code> and <code>]</code> nudge the selected card.</p>
+        <p class="hint">Click or tap a block on the timeline to select and seek. Drag it to move, drag its right edge to stretch. Pinch — or roll the wheel — to zoom into a section; double-tap to fit the whole track again. <code>[</code> and <code>]</code> nudge the selected card.</p>
+      </div>
+
+      <div class="grp" id="ovgrp">
+        <h4>This card only <span id="ovwho" style="color:var(--dim);font-weight:600"></span></h4>
+        <div class="r">
+          <select id="ov-anim"><option value="">Animation — as the deck</option></select>
+        </div>
+        <div class="r">
+          <select id="ov-font"><option value="">Face — as the deck</option></select>
+        </div>
+        <div class="r">
+          <select id="ov-align">
+            <option value="">Align — deck</option>
+            <option value="center">Centre</option><option value="left">Left</option><option value="right">Right</option>
+          </select>
+          <select id="ov-treat">
+            <option value="">Treatment — deck</option>
+            <option value="none">Clean</option><option value="shadow">Shadow</option><option value="outline">Outline</option>
+            <option value="plate">Plate</option><option value="knock">Knockout</option>
+          </select>
+        </div>
+        <div class="r">
+          <select id="ov-hit">
+            <option value="">Accent word — deck</option>
+            <option value="long">Longest word</option><option value="mark">Only *starred*</option>
+            <option value="none">None</option><option value="all">Every word</option>
+            <option value="first">First word</option><option value="last">Last word</option>
+          </select>
+        </div>
+        <div class="r">
+          <div class="fld"><span class="lab">Size</span>
+            <input type="number" id="ov-size" min="16" max="400" step="1" placeholder="deck"></div>
+          <div class="fld"><span class="lab">Vertical</span>
+            <input type="number" id="ov-posy" min="0" max="100" step="1" placeholder="deck"></div>
+        </div>
+        <div class="r">
+          <span class="chip fix" id="ov-usecolor">Text</span>
+          <span class="fix" style="flex:0 0 auto"><input type="color" id="ov-color" value="#F2EDE4"></span>
+          <span class="chip fix" id="ov-useaccent">Accent</span>
+          <span class="fix" style="flex:0 0 auto"><input type="color" id="ov-accent" value="#FF4A17"></span>
+        </div>
+        <button id="ovclear" class="sm">Back to the deck look</button>
+        <p class="hint">Overrides ride on the card, in a fourth field: <code>12.40 | 2.10 | the hook | anim=glitch size=160</code>. Cards carrying one are marked in the list and on the timeline. Anything not listed here — <code>lh</code>, <code>track</code>, <code>stagger</code>, <code>indur</code>, <code>outdur</code> — can be typed into that field directly.</p>
       </div>
     </div>
 
@@ -501,8 +752,15 @@
 
       <div class="grp">
         <h4>Render</h4>
-        <button id="rec" class="primary" disabled>● Record range</button>
-        <p class="hint">Recording runs in real time — a 30 second edit takes 30 seconds. Keep this tab in front; a backgrounded tab throttles the frame clock. Output is WebM (VP9 + Opus), which Premiere, Resolve, CapCut and every social uploader accept. <code>ffmpeg -i edit.webm -c:v libx264 -crf 18 edit.mp4</code> if you need H.264.</p>
+        <div class="r">
+          <span class="chip on hot" id="offchip">Offline render</span>
+          <span class="lab" style="align-items:center" id="offhint">frame-exact, runs unattended</span>
+        </div>
+        <button id="rec" class="primary" disabled>⚡ Render range</button>
+        <button id="reccancel" class="sm" hidden>Stop</button>
+        <div class="fld"><span class="lab">Progress <b id="v-render">—</b></span>
+          <input type="range" id="renderbar" min="0" max="100" value="0" disabled></div>
+        <p class="hint" id="rechint">Offline render draws every frame on demand and hands it straight to the encoder. Nothing is filmed off a clock, so <b>no frame is ever dropped</b> and you can leave the tab in the background or work in another window while it runs. Speed depends on the machine: a hardware VP9 encoder beats real time comfortably, software VP9 at 1080×1920 is roughly level with it. Switch it off to record in real time instead — which is what you want when the sound is coming from tab capture or the mic, since only a loaded file can be re-read offline. Output is WebM (VP9 + Opus): Premiere, Resolve, CapCut and every social uploader take it. <code>ffmpeg -i edit.webm -c:v libx264 -crf 18 edit.mp4</code> if you need H.264.</p>
         <div class="r">
           <button id="png" class="wide">Save this frame</button>
           <button id="sheet" class="wide">Contact sheet</button>
@@ -525,12 +783,14 @@
           <label class="btn wide" for="pimport">Import .json</label>
           <input type="file" id="pimport" accept=".json,application/json">
         </div>
-        <p class="hint">Saved edits live in this browser only, and they hold the look and the timings — not the media. Images and the track are re-attached each session.</p>
+        <p class="hint">Saved edits live in this browser only. The look and the timings go to <code>localStorage</code>; the plates and the track go to IndexedDB alongside them, so loading an edit brings its media back too. An exported <code>.json</code> carries the edit but not the bytes — moving it to another machine means re-attaching the media there.</p>
       </div>
     </div>
 
     <!-- ---------------- diagnostics ---------------- -->
     <div class="diag" id="diag">
+      <button class="diaghead" id="diagtoggle" aria-expanded="false" aria-controls="diagrows">Diagnostics <span id="diagcaret">▸</span></button>
+      <div id="diagrows">
       <div class="d"><span>clock</span><span id="d-clock" class="s-warn">free running</span></div>
       <div class="d"><span>audio in</span><span id="d-audio" class="s-warn">none</span></div>
       <div class="d"><span>spotify</span><span id="d-spot" class="s-warn">not connected</span></div>
@@ -538,9 +798,12 @@
       <div class="d"><span>cards</span><span id="d-lines">0</span></div>
       <div class="d"><span>timed</span><span id="d-timed">no</span></div>
       <div class="d"><span>plates</span><span id="d-media">0</span></div>
+      <div class="d"><span>stored</span><span id="d-store">—</span></div>
       <div class="d"><span>fonts</span><span id="d-font" class="s-warn">loading</span></div>
       <div class="d"><span>canvas</span><span id="d-taint" class="s-ok">clean</span></div>
+      <div class="d"><span>transcribe</span><span id="d-asr">idle</span></div>
       <div class="d"><span>recorder</span><span id="d-rec">—</span></div>
+      </div>
       <span class="msg" id="d-msg">Paste lyrics under Lines. Everything renders to canvas, so what you see is exactly what records.</span>
     </div>
   </div>
@@ -558,6 +821,15 @@
    can be re-rendered off-clock for export, and MediaRecorder can capture the
    real thing instead of a screen grab.
    ========================================================================= */
+
+/* ------------------------------------------------------------- platform
+   Two axes, deliberately kept apart: COARSE is about the input device and
+   decides how big the targets are; NARROW is about the viewport and decides
+   the layout. A touchscreen laptop is coarse but not narrow; a phone with a
+   trackpad paired is narrow but not coarse. */
+const mq = q => (window.matchMedia ? window.matchMedia(q) : {matches:false, addEventListener(){}} );
+const COARSE = mq('(pointer:coarse)').matches;
+const NARROW = mq('(max-width:900px)').matches;
 
 const $  = id => document.getElementById(id);
 const $$ = sel => Array.from(document.querySelectorAll(sel));
@@ -674,7 +946,7 @@ const DEFAULTS = {
   bgmode:'single', every:4, fade:.3, fit:'cover',
   kb:'none', kbamt:14, pulse:0, shake:0,
   grade:'none', expo:100, contr:100, sat:100, iblur:0, ctint:'#1433C4', tintamt:0, vig:45, grain:16, cbg:'#1433C4',
-  clocksrc:"auto", ratio:"9:16", fps:30, vbr:8, guides:false, quality:1,
+  clocksrc:"auto", ratio:"9:16", fps:30, vbr:8, guides:false, quality:1, offline:true,
   spoff:0
 };
 
@@ -688,6 +960,7 @@ const state = {
   bpm: 0,
   peaks: null,        // Float32Array pairs for the waveform
   inPt: 0, outPt: null,
+  trackRef: null,    // {id,name} of the track's row in the vault
   snap: false, grid: false,
   recording: false,
   tainted: false,
@@ -698,28 +971,107 @@ const canvas = $('stage');
 const ctx = canvas.getContext('2d', {alpha:false});
 let DW = 1080, DH = 1920;   // design units — every draw call speaks these
 
+/* ---------------------------------------------------------------- vault
+   localStorage holds strings and about five megabytes of them, which is why
+   a saved edit has always dropped its media and asked you to re-attach it.
+   IndexedDB holds Blobs and orders of magnitude more, so the files go here
+   and the project blob keeps only their ids. Every call resolves rather than
+   rejects: a browser in private mode, or with storage switched off, should
+   lose persistence and nothing else. */
+const VAULT = {
+  name:'kinetic', store:'blobs', db:null, dead:false,
+
+  open(){
+    if(this.db) return Promise.resolve(this.db);
+    if(this.dead || !window.indexedDB) return Promise.resolve(null);
+    return new Promise(res => {
+      let rq;
+      try{ rq = indexedDB.open(this.name, 1); }catch(e){ this.dead = true; return res(null); }
+      rq.onupgradeneeded = () => {
+        if(!rq.result.objectStoreNames.contains(this.store)) rq.result.createObjectStore(this.store, {keyPath:'id'});
+      };
+      rq.onsuccess = () => { this.db = rq.result; res(this.db); };
+      rq.onerror   = () => { this.dead = true; res(null); };
+      rq.onblocked = () => res(null);
+    });
+  },
+
+  async tx(mode, fn){
+    const db = await this.open();
+    if(!db) return null;
+    return new Promise(res => {
+      let t;
+      try{ t = db.transaction(this.store, mode); }catch(e){ return res(null); }
+      const rq = fn(t.objectStore(this.store));
+      t.onabort = t.onerror = () => res(null);
+      if(rq) rq.onsuccess = () => res(rq.result);
+      else t.oncomplete = () => res(true);
+    });
+  },
+
+  put(rec){ return this.tx('readwrite', st => st.put(rec)); },
+  get(id){ return this.tx('readonly',  st => st.get(id)); },
+  del(id){ return this.tx('readwrite', st => st.delete(id)); },
+  keys(){  return this.tx('readonly',  st => st.getAllKeys()).then(k => k || []); }
+};
+
+let vaultSeq = 0;
+const vaultId = p => p + '_' + Date.now().toString(36) + '_' + (vaultSeq++).toString(36);
+
 /* ================================================================== media
    A plate is one image or one video clip. They are kept as decoded elements,
    never as data URLs, so a twelve-image edit costs twelve object URLs rather
-   than twelve megabytes of base64 sitting in the project blob. */
-const media = [];   // {kind:'img'|'vid', el, name, url, w, h}
+   than twelve megabytes of base64 sitting in the project blob. The bytes
+   themselves go to the vault above, keyed by id, so a saved edit can put them
+   back on the next boot. */
+const media = [];   // {kind:'img'|'vid', el, name, url, w, h, id}
 
-function addMedia(file){
+function addMedia(file, id){
+  const keep = !id;
+  id = id || vaultId('plate');
   return new Promise((resolve,reject) => {
     const url = URL.createObjectURL(file);
     const vid = /^video\//.test(file.type) || /\.(mp4|webm|mov)$/i.test(file.name);
     if(vid){
       const el = document.createElement('video');
       el.src = url; el.muted = true; el.loop = true; el.playsInline = true; el.preload = 'auto';
-      el.onloadedmetadata = () => { media.push({kind:'vid', el, name:file.name, url, w:el.videoWidth, h:el.videoHeight}); resolve(); };
+      el.onloadedmetadata = () => {
+        media.push({kind:'vid', el, name:file.name, url, w:el.videoWidth, h:el.videoHeight, id});
+        if(keep) VAULT.put({id, kind:'vid', name:file.name, blob:file});
+        resolve();
+      };
       el.onerror = () => reject(new Error('could not decode ' + file.name));
     } else {
       const el = new Image();
-      el.onload = () => { media.push({kind:'img', el, name:file.name, url, w:el.naturalWidth, h:el.naturalHeight}); resolve(); };
+      el.onload = () => {
+        media.push({kind:'img', el, name:file.name, url, w:el.naturalWidth, h:el.naturalHeight, id});
+        if(keep) VAULT.put({id, kind:'img', name:file.name, blob:file});
+        resolve();
+      };
       el.onerror = () => reject(new Error('could not decode ' + file.name));
       el.src = url;
     }
   });
+}
+
+/* Put the plates of a saved edit back. Anything the vault has lost — cleared
+   site data, a project moved to another machine as bare .json — is reported
+   by name rather than silently skipped, so the gap in the edit has a cause. */
+async function restorePlates(refs){
+  if(!Array.isArray(refs) || !refs.length) return 0;
+  let missing = [];
+  for(const r of refs){
+    if(!r || !r.id) continue;
+    const rec = await VAULT.get(r.id);
+    if(!rec || !rec.blob){ missing.push(r.name || r.id); continue; }
+    const name = rec.name || r.name || 'plate';
+    try{ await addMedia(new File([rec.blob], name, {type:rec.blob.type}), r.id); }
+    catch(e){ missing.push(name); }
+  }
+  paintThumbs(); refreshDiag();
+  if(missing.length) DIAG.say(missing.length + ' plate' + (missing.length>1?'s':'') + ' could not be found in this browser\'s storage: ' +
+    missing.slice(0,4).join(', ') + '. Drop the file' + (missing.length>1?'s':'') + ' back in.', 's-warn');
+  return refs.length - missing.length;
 }
 
 /* Remote artwork taints the canvas unless the host sends CORS headers, and a
@@ -743,7 +1095,7 @@ function addRemoteImage(url, name){
 }
 
 function clearMedia(){
-  media.forEach(m => { try{ URL.revokeObjectURL(m.url); }catch(e){} });
+  media.forEach(m => { try{ URL.revokeObjectURL(m.url); }catch(e){} if(m.id) VAULT.del(m.id); });
   media.length = 0;
   state.tainted = false;
   DIAG.set('d-taint','clean','s-ok');
@@ -770,10 +1122,79 @@ const GRAIN = ctx.createPattern(noiseTile(),'repeat');
 const DOTS  = ctx.createPattern(dotTile(),'repeat');
 const SCAN  = ctx.createPattern(scanTile(),'repeat');
 
-/* ================================================================== script */
-// "start | duration | text", or a bare lyric line. Section headers go away.
+/* ================================================================== script
+   "start | duration | text", or a bare lyric line, optionally followed by a
+   fourth field of key=value overrides for that one card:
+
+       12.40 | 2.10 | we run the block | anim=glitch size=160 color=#FF4A17
+
+   A deck where every card animates identically is a deck, not an edit. The
+   fourth field is what makes one line hit differently from the rest without
+   splitting the project in two. Rows without it parse exactly as before. */
 const isHeader = r => /^[\[(].*[\])]$/.test(r);
-const rowText  = r => { const p = r.split('|'); return (p.length >= 3 ? p.slice(2).join('|') : p[0]).trim(); };
+
+const num  = (lo,hi) => v => { const n = parseFloat(v); return Number.isFinite(n) ? clamp(n,lo,hi) : null; };
+const pick = (...ok) => v => ok.includes(v) ? v : null;
+const hex  = v => /^#[0-9a-f]{6}$/i.test(v) ? v : (/^[0-9a-f]{6}$/i.test(v) ? '#' + v : null);
+
+/* name in the script -> key in the settings object, and what counts as valid.
+   Anything that does not validate is dropped rather than applied half-right. */
+const OVERRIDES = {
+  anim:    ['anim',    v => ANIMS[v] ? v : null],
+  font:    ['font',    v => FAM[v] !== undefined ? v : null],
+  size:    ['size',    num(16, 400)],
+  posy:    ['posy',    num(0, 100)],
+  align:   ['align',   pick('center','left','right')],
+  case:    ['case',    pick('upper','as','lower','title')],
+  treat:   ['treat',   pick('none','shadow','outline','plate','knock')],
+  hit:     ['hitmode', pick('long','mark','none','all','first','last')],
+  color:   ['ctext',   hex],
+  accent:  ['chit',    hex],
+  lh:      ['lh',      num(.5, 2.2)],
+  track:   ['track',   num(-20, 60)],
+  stagger: ['stagger', num(0, 600)],
+  indur:   ['indur',   num(.02, 3)],
+  outdur:  ['outdur',  num(0, 3)]
+};
+const OV_BY_KEY = {};
+for(const [name,[key]] of Object.entries(OVERRIDES)) OV_BY_KEY[key] = name;
+
+const OV_SHAPE = /^\s*[a-z]+\s*=\s*[^\s|]+(?:\s+[a-z]+\s*=\s*[^\s|]+)*\s*$/i;
+
+/* Only a field where *every* pair is a known key counts as overrides. One
+   unknown name and the whole field is treated as text, because a lyric that
+   happens to read "cost=12" should survive being typed. */
+function parseOv(field){
+  if(!field || !OV_SHAPE.test(field)) return null;
+  const out = {};
+  for(const pair of field.trim().split(/\s+/)){
+    const at = pair.indexOf('=');
+    const name = pair.slice(0, at).trim().toLowerCase(), raw = pair.slice(at+1).trim();
+    const spec = OVERRIDES[name];
+    if(!spec) return null;
+    const v = spec[1](raw);
+    if(v === null) return null;
+    out[spec[0]] = v;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+function ovText(ov){
+  if(!ov) return '';
+  return Object.keys(ov).map(k => (OV_BY_KEY[k] || k) + '=' + ov[k]).join(' ');
+}
+
+/* Split a row into its text and its overrides, whichever shape it is in. */
+function splitRow(r){
+  const p = r.split('|');
+  if(p.length < 3) return {text:p[0].trim(), ov:null};
+  if(p.length >= 4){
+    const ov = parseOv(p[p.length-1]);
+    if(ov) return {text:p.slice(2,-1).join('|').trim(), ov};
+  }
+  return {text:p.slice(2).join('|').trim(), ov:null};
+}
+const rowText = r => splitRow(r).text;
 
 function cleanRows(raw){
   return raw.split('\n').map(r => r.trim()).filter(Boolean).filter(r => !isHeader(r));
@@ -787,17 +1208,17 @@ function parseScript(raw){
     const parts = row.split('|');
     if(parts.length >= 3){
       const t = parseFloat(parts[0]), d = parseFloat(parts[1]);
-      const text = parts.slice(2).join('|').trim();
+      const {text, ov} = splitRow(row);
       if(!text) continue;
       if(Number.isFinite(t)){
         anyTimed = true;
         const dur = Number.isFinite(d) && d > 0 ? d : 2.4;
-        out.push({t, d:dur, text});
+        out.push({t, d:dur, text, ov});
         cursor = Math.max(cursor, t + dur + .2);
         continue;
       }
     }
-    out.push({t:cursor, d:2.4, text:row});
+    out.push({t:cursor, d:2.4, text:row, ov:null});
     cursor += 2.6;
   }
   out.sort((a,b) => a.t - b.t);
@@ -805,29 +1226,41 @@ function parseScript(raw){
 }
 
 function serialise(){
-  return state.lines.map(l => l.t.toFixed(2) + ' | ' + l.d.toFixed(2) + ' | ' + l.text).join('\n');
+  return state.lines.map(l => {
+    const tail = ovText(l.ov);
+    return l.t.toFixed(2) + ' | ' + l.d.toFixed(2) + ' | ' + l.text + (tail ? ' | ' + tail : '');
+  }).join('\n');
 }
 
+/* What this card actually renders with: the deck's settings, with its own
+   overrides laid on top. One object, computed once per frame, threaded down
+   through layout and drawing so nothing below has to know which is which. */
+const styleFor = line => (line && line.ov) ? Object.assign({}, S, line.ov) : S;
+
 // *stars* mark an accent word, // forces a break inside the card.
-function tokens(text){
+function tokens(text, E){
+  E = E || S;
   const out = [];
   for(const raw of text.split(/\s+/)){
     if(!raw) continue;
     if(raw === '//'){ out.push({br:true}); continue; }
     const mark = /^\*.*\*$/.test(raw);
     let w = mark ? raw.slice(1,-1) : raw;
-    if(S.case === 'upper') w = w.toUpperCase();
-    else if(S.case === 'lower') w = w.toLowerCase();
-    else if(S.case === 'title') w = w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+    /* toLocaleUpperCase, not toUpperCase: a deck that renders Turkish or
+       Greek in the wrong case is a deck that cannot render those languages. */
+    if(E.case === 'upper') w = w.toLocaleUpperCase();
+    else if(E.case === 'lower') w = w.toLocaleLowerCase();
+    else if(E.case === 'title') w = w.charAt(0).toLocaleUpperCase() + w.slice(1).toLocaleLowerCase();
     out.push({text:w, mark});
   }
   return out;
 }
 
-function hitIndex(toks){
+function hitIndex(toks, E){
+  E = E || S;
   const words = toks.filter(t => !t.br);
   if(!words.length) return -1;
-  switch(S.hitmode){
+  switch(E.hitmode){
     case 'none': return -1;
     case 'all':  return -2;                      // sentinel: colour everything
     case 'mark': return -3;                      // sentinel: honour the stars
@@ -853,15 +1286,17 @@ function lineAt(t){
 const HAS_TRACKING = 'letterSpacing' in ctx;
 let measureCache = new Map(), measureKey = '';
 
-function setFace(size){
-  ctx.font = fontCss(S.font, size);
+function setFace(size, E){
+  E = E || S;
+  ctx.font = fontCss(E.font, size);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  if(HAS_TRACKING) ctx.letterSpacing = (S.track/100*size).toFixed(2) + 'px';
+  if(HAS_TRACKING) ctx.letterSpacing = (E.track/100*size).toFixed(2) + 'px';
 }
 
-function measure(word, size){
-  const key = S.font + '|' + size + '|' + S.track + '|' + word;
+function measure(word, size, E){
+  E = E || S;
+  const key = E.font + '|' + size + '|' + E.track + '|' + word;
   if(measureCache.has(key)) return measureCache.get(key);
   const w = ctx.measureText(word).width;
   if(measureCache.size > 4000) measureCache.clear();
@@ -872,10 +1307,11 @@ function measure(word, size){
 /* Rows are laid out once per frame. It is cheap — a handful of measureText
    calls against a cache — and it means size, tracking and margin sliders move
    the type live instead of on the next card. */
-function layout(toks, size){
-  setFace(size);
-  const maxW = DW * (1 - S.margin/100*2);
-  const space = measure(' ', size) || size*.26;
+function layout(toks, size, E){
+  E = E || S;
+  setFace(size, E);
+  const maxW = DW * (1 - E.margin/100*2);
+  const space = measure(' ', size, E) || size*.26;
   const rows = [];
   let cur = [], curW = 0, order = 0;
 
@@ -883,7 +1319,7 @@ function layout(toks, size){
 
   for(const tk of toks){
     if(tk.br){ push(); continue; }
-    const w = measure(tk.text, size);
+    const w = measure(tk.text, size, E);
     if(cur.length && curW + space + w > maxW) push();
     const gap = cur.length ? space : 0;
     cur.push({text:tk.text, mark:tk.mark, w, x:curW + gap, n:order++});
@@ -895,20 +1331,21 @@ function layout(toks, size){
 
 /* If a card overflows the frame, shrink it rather than letting it bleed off
    the edge. Silent clipping is the one failure mode you cannot see coming. */
-function fitLayout(toks){
-  let size = S.size;
-  let L = layout(toks, size);
+function fitLayout(toks, E){
+  E = E || S;
+  let size = E.size;
+  let L = layout(toks, size, E);
   const maxH = DH * .78;
   let guard = 0;
   while(guard++ < 24){
-    const tall = L.rows.length * size * S.lh;
+    const tall = L.rows.length * size * E.lh;
     const wide = L.rows.some(r => r.w > L.maxW + 1);
     if(tall <= maxH && !wide) break;
     size *= .93;
-    L = layout(toks, size);
+    L = layout(toks, size, E);
   }
   L.size = size;
-  L.shrunk = size < S.size - .5;
+  L.shrunk = size < E.size - .5;
   return L;
 }
 
@@ -1086,7 +1523,8 @@ function drawGuides(){
 }
 
 /* ---------------------------------------------------------------- the type */
-function drawWord(word, cx, cy, size, tr, colour){
+function drawWord(word, cx, cy, size, tr, colour, E){
+  E = E || S;
   const boxW = word.w, boxH = size*.78;
   const ox = tr.ox === undefined ? .5 : tr.ox;
   const oy = tr.oy === undefined ? .5 : tr.oy;
@@ -1110,23 +1548,23 @@ function drawWord(word, cx, cy, size, tr, colour){
     ctx.clip();
   }
 
-  setFace(size);
+  setFace(size, E);
   let text = word.text;
   if(tr.ch !== undefined) text = text.slice(0, Math.max(1, Math.ceil(text.length*tr.ch)));
 
-  if(S.treat === 'plate' || S.treat === 'knock'){
+  if(E.treat === 'plate' || E.treat === 'knock'){
     const padX = size*.16, padY = size*.09;
-    const plateFill = S.treat === 'plate' ? colour : S.ctext;
+    const plateFill = E.treat === 'plate' ? colour : E.ctext;
     ctx.fillStyle = plateFill;
     const rx = cx - boxW/2 - padX, ry = cy - boxH/2 - padY;
     const rw = boxW + padX*2, rh = boxH + padY*2;
     ctx.beginPath();
     if(ctx.roundRect) ctx.roundRect(rx, ry, rw, rh, size*.06); else ctx.rect(rx, ry, rw, rh);
     ctx.fill();
-    ctx.fillStyle = S.treat === 'knock' ? S.cbg : readable(plateFill);
+    ctx.fillStyle = E.treat === 'knock' ? E.cbg : readable(plateFill);
     ctx.fillText(text, cx, cy);
   } else {
-    if(S.treat === 'shadow'){
+    if(E.treat === 'shadow'){
       ctx.shadowColor = 'rgba(0,0,0,.55)';
       ctx.shadowBlur = size*.20;
       ctx.shadowOffsetY = size*.055;
@@ -1139,7 +1577,7 @@ function drawWord(word, cx, cy, size, tr, colour){
       ctx.fillStyle = '#00E5FF'; ctx.fillText(text, cx + size*.06*tr.rgb, cy);
       ctx.restore();
     }
-    if(S.treat === 'outline'){
+    if(E.treat === 'outline'){
       ctx.lineJoin = 'round';
       ctx.lineWidth = size*.085;
       ctx.strokeStyle = '#0B0E1C';
@@ -1155,20 +1593,26 @@ function drawText(t){
   const i = lineAt(t);
   if(i < 0) return {index:-1};
   const line = state.lines[i];
-  const toks = tokens(line.text);
+  const E = styleFor(line);           // the deck's look, with this card's on top
+  const toks = tokens(line.text, E);
   if(!toks.length) return {index:i};
 
-  const L = fitLayout(toks);
+  const L = fitLayout(toks, E);
   const size = L.size;
-  const hit = hitIndex(toks);
+  const hit = hitIndex(toks, E);
 
-  const rowH = size*S.lh;
+  const rowH = size*E.lh;
   const totalH = L.rows.length*rowH;
-  const cyTop = DH*(S.posy/100) - totalH/2 + rowH/2;
+  const cyTop = DH*(E.posy/100) - totalH/2 + rowH/2;
 
-  const anim = ANIMS[S.anim] || ANIMS.snap;
-  const outStart = line.t + line.d - S.outdur;
-  const outMul = S.outdur > 0 ? 1 - ease.out(inv(outStart, line.t + line.d, t)) : 1;
+  const anim = ANIMS[E.anim] || ANIMS.snap;
+  /* The In duration slider is the in duration. It used to be bound to nothing
+     while the animation's own constant drove the timing, so the control moved
+     and the stage did not. Picking an animation now seeds the slider with that
+     animation's designed duration, and the slider is what renders. */
+  const inDur = Math.max(.02, E.indur || anim.dur);
+  const outStart = line.t + line.d - E.outdur;
+  const outMul = E.outdur > 0 ? 1 - ease.out(inv(outStart, line.t + line.d, t)) : 1;
 
   // A hit is the instant a word lands. It drives the frame shake, so it is
   // computed here rather than guessed from the audio envelope.
@@ -1176,14 +1620,14 @@ function drawText(t){
   const count = L.rows.reduce((a,r) => a + r.words.length, 0);
 
   ctx.save();
-  if(S.shake > 0){
+  if(E.shake > 0){
     for(let n=0;n<count;n++){
-      const on = line.t + n*(S.stagger/1000);
+      const on = line.t + n*(E.stagger/1000);
       const age = t - on;
       if(age >= 0 && age < .16) flash = Math.max(flash, 1 - age/.16);
     }
     if(flash > 0){
-      const a = S.shake/100 * flash * 22;
+      const a = E.shake/100 * flash * 22;
       ctx.translate((Math.random()-.5)*a, (Math.random()-.5)*a);
     }
   }
@@ -1191,19 +1635,19 @@ function drawText(t){
   L.rows.forEach((row, ri) => {
     const cy = cyTop + ri*rowH;
     let originX;
-    if(S.align === 'left')       originX = DW*(S.margin/100);
-    else if(S.align === 'right') originX = DW*(1 - S.margin/100) - row.w;
+    if(E.align === 'left')       originX = DW*(E.margin/100);
+    else if(E.align === 'right') originX = DW*(1 - E.margin/100) - row.w;
     else                         originX = (DW - row.w)/2;
 
     row.words.forEach(word => {
-      const on = line.t + word.n*(S.stagger/1000);
-      const p  = clamp((t - on)/anim.dur, 0, 1);
+      const on = line.t + word.n*(E.stagger/1000);
+      const p  = clamp((t - on)/inDur, 0, 1);
       if(t < on) return;
       const tr = Object.assign({}, anim.f(p, word.n));
       tr.o = (tr.o === undefined ? 1 : tr.o) * outMul;
       if(outMul < 1) tr.s = (tr.s === undefined ? 1 : tr.s) * lerp(.94, 1, outMul);
       const isHit = hit === -2 ? true : hit === -3 ? !!word.mark : (hit >= 0 && word.n === hit);
-      drawWord(word, originX + word.x + word.w/2, cy, size, tr, isHit ? S.chit : S.ctext);
+      drawWord(word, originX + word.x + word.w/2, cy, size, tr, isHit ? E.chit : E.ctext, E);
     });
   });
   ctx.restore();
@@ -1277,6 +1721,16 @@ function wireFile(){
   }
 }
 
+/* Safari — desktop and iOS alike — starts every AudioContext suspended and
+   only lets a user gesture resume it. transport.play() handles the file path;
+   this catches everything else, so the meter and the beat pulse come alive on
+   the first touch rather than staying dead until something is played. */
+function unlockAudio(){
+  if(AUD.ctx && AUD.ctx.state === 'suspended') AUD.ctx.resume().catch(() => {});
+}
+['pointerdown','touchend','keydown'].forEach(k =>
+  addEventListener(k, unlockAudio, {passive:true}));
+
 function readLevel(){
   if(!AUD.analyser) return;
   AUD.analyser.getByteFrequencyData(AUD.data);
@@ -1312,6 +1766,12 @@ async function captureTab(){
 }
 
 async function captureMic(){
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    DIAG.say(window.isSecureContext === false
+      ? 'The microphone needs a secure context. Open this page over https, or on localhost — a plain http:// address will not do.'
+      : 'This browser exposes no microphone API.', 's-bad');
+    return;
+  }
   try{
     const stream = await navigator.mediaDevices.getUserMedia({
       audio:{echoCancellation:false, noiseSuppression:false, autoGainControl:false}
@@ -1409,6 +1869,301 @@ async function analyseBuffer(arrayBuf){
 
   ac.close();
   return {beats, bpm:Math.round(bpm*10)/10, peaks, env, envRate:rate, duration:ab.duration};
+}
+
+/* ============================================================ transcription
+   Whisper, fetched once and run on this machine. Not a cloud API: somebody's
+   unreleased track should not have to leave their laptop to become a lyric
+   deck, and a browser tool that needs an API key is a browser tool nobody can
+   just open.
+
+   It is honest about what it is. Whisper was trained on speech, and sung
+   vocals over a full mix are a harder problem than speech — the lower the
+   resource language, the harder still. On a clean vocal it is very good; on a
+   dense master it gives you a draft to fix rather than a finished script. The
+   timings it returns are the real prize either way, because they land the
+   cards where the words are.
+
+   Audio is windowed here rather than handed over whole, which buys three
+   things: progress that means something, a Cancel that actually stops, and a
+   memory ceiling that a phone can live with. */
+/* A throw from pipeline() that mentions any of these is the download, not the
+   device. Matched loosely on purpose: every layer between here and the bytes
+   words it differently. */
+const NETWORKY = /failed to fetch|networkerror|network error|load model|could not locate|unexpected token|err_|fetch failed|\b4\d\d\b|\b5\d\d\b/i;
+
+const ASR = {
+  lib:null, pipe:null, model:null, device:null, busy:false, cancel:false,
+  /* The bundled file, explicitly — not the bare package path. The package's
+     own browser entry (dist/transformers.web.js) imports "onnxruntime-web" by
+     bare specifier, which no browser can resolve without an import map, so
+     both it and the bare path fail at import. dist/transformers.min.js is the
+     one self-contained build. Pinned, because an unpinned CDN URL is a
+     dependency that can change under you. */
+  CDN:'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.5/dist/transformers.min.js',
+  WIN:30, OVERLAP:3          // seconds per window, and how much they share
+};
+
+/* Whisper wants 16 kHz mono Float32. decodeAudioData gives whatever the file
+   is, so downmix and resample; OfflineAudioContext does the resampling in C++
+   rather than us doing it badly in a loop. */
+async function decodeForAsr(file, onNote){
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if(!AC) throw new Error('this browser has no Web Audio, so nothing can be decoded');
+  const ac = new AC();
+  let buf;
+  try{
+    buf = await ac.decodeAudioData(await file.arrayBuffer());
+  }catch(e){
+    ac.close();
+    throw new Error('the browser could not decode ' + file.name + '. Try a wav, mp3 or m4a.');
+  }
+  ac.close();
+  if(onNote) onNote(buf.duration);
+
+  const RATE = 16000;
+  const frames = Math.max(1, Math.round(buf.duration*RATE));
+  const off = new OfflineAudioContext(1, frames, RATE);
+  const src = off.createBufferSource();
+  src.buffer = buf;
+  src.connect(off.destination);
+  src.start();
+  const out = await off.startRendering();
+  return {pcm: out.getChannelData(0), rate: RATE, duration: buf.duration};
+}
+
+/* Fetching ~80MB of model over a link the page has no control over is the one
+   step most likely to fail, so it says which step failed and why. */
+async function loadAsr(model, onProgress){
+  if(ASR.pipe && ASR.model === model) return ASR.pipe;
+  if(!ASR.lib){
+    try{
+      ASR.lib = await import(/* webpackIgnore: true */ ASR.CDN);
+    }catch(e){
+      console.error('[kinetic] speech library import failed:', e);
+      /* The underlying message is the whole diagnosis here — "Failed to fetch"
+         is a blocked host, a bare CORS complaint is a proxy rewriting the
+         response — so it is passed through rather than tidied away. */
+      throw new Error('the speech library would not load from jsDelivr: ' + ((e && e.message) || e) +
+        '\nAd blockers and shields are the usual cause — Brave Shields, uBlock and similar block CDN script hosts on some lists. ' +
+        'Allow cdn.jsdelivr.net and huggingface.co for this site, then try again. The rest of the app does not need either.');
+    }
+  }
+  const { pipeline, env } = ASR.lib;
+
+  /* Without this the library probes this page's own origin for a local copy of
+     the model first, which is a spray of 404s against whatever static server
+     is serving the folder before it ever reaches the real host. */
+  if(env){
+    env.allowLocalModels = false;
+    env.useBrowserCache = true;
+  }
+  /* Inference is deliberately left on the main thread. Running it in a worker
+     would keep the page smooth, but it means the library spinning up a worker
+     off a CDN URL, and that is one more thing to fail on a locked-down network
+     for a benefit the windowing already mostly delivers — the loop yields
+     between windows, so the stage keeps painting and Stop stays live. */
+  const attempt = device => pipeline('automatic-speech-recognition', model, {
+    dtype: device === 'webgpu' ? 'fp32' : 'q8',
+    device,
+    progress_callback: p => {
+      if(!onProgress) return;
+      if(p.status === 'progress' && p.total) onProgress(p.file || '', p.loaded/p.total);
+      else if(p.status === 'ready') onProgress('', 1);
+    }
+  });
+
+  /* Two failures wear the same coat here. The library is loaded and running,
+     so a throw at this point is either the weights not arriving or the backend
+     not starting — and telling somebody their GPU is broken when their network
+     ate the download sends them to fix the wrong thing. */
+  const order = navigator.gpu ? ['webgpu', 'wasm'] : ['wasm'];
+  let last;
+  for(const device of order){
+    try{
+      ASR.pipe = await attempt(device);
+      ASR.model = model;
+      ASR.device = device;
+      return ASR.pipe;
+    }catch(e){
+      last = e;
+      console.error('[kinetic] ' + device + ' pipeline failed:', e);
+      if(NETWORKY.test(String((e && e.message) || e))){
+        ASR.pipe = null;
+        throw new Error('the model files would not download from huggingface.co: ' + ((e && e.message) || e) +
+          '\nThe library itself loaded, so the page is online and the problem is that host specifically. ' +
+          'A blocker or shields setting is the usual cause — allow huggingface.co and cdn-lfs.huggingface.co for this site.');
+      }
+      /* not the network: a backend that will not start. Fall through to the
+         next one rather than giving up on a machine that can still do it. */
+    }
+  }
+  ASR.pipe = null;
+  console.error('[kinetic] every backend failed:', last);
+  throw new Error('no backend would run the model here (tried ' + order.join(', ') + '): ' + ((last && last.message) || last));
+}
+
+/* Whisper loops when it runs out of speech — an instrumental break comes back
+   as the same line four times. Three in a row is the model stuck, not the
+   song, so the repeats go. */
+function chunksToRows(chunks, opt){
+  opt = opt || {};
+  const perLine = clamp(opt.perLine || 6, 2, 14);
+  const cap = Number.isFinite(opt.duration) ? opt.duration : Infinity;
+  const rows = [];
+  let prev = '', runs = 0, cursor = 0;
+
+  for(const c of (chunks || [])){
+    const text = String((c && c.text) || '').replace(/\s+/g, ' ').trim();
+    if(!text) continue;
+
+    const norm = text.toLocaleLowerCase();
+    if(norm === prev){ if(++runs >= 2) continue; } else { prev = norm; runs = 0; }
+
+    const ts = (c && c.timestamp) || [];
+    let t0 = Number.isFinite(ts[0]) ? ts[0] : cursor;
+    let t1 = Number.isFinite(ts[1]) ? ts[1] : 0;
+    if(!(t1 > t0)) t1 = t0 + clamp(text.length*.07, .6, 4);
+    t0 = clamp(t0, 0, cap);
+    t1 = clamp(t1, t0 + .2, cap === Infinity ? t1 : cap);
+
+    // long chunks become several cards, sharing the window by character count
+    const words = text.split(' ').filter(Boolean);
+    const groups = [];
+    for(let i=0;i<words.length;i+=perLine) groups.push(words.slice(i, i+perLine));
+    const weights = groups.map(g => g.join(' ').length || 1);
+    const total = weights.reduce((a,w) => a+w, 0);
+
+    let at = t0;
+    groups.forEach((g, gi) => {
+      const d = Math.max(.25, (t1-t0) * (weights[gi]/total));
+      rows.push({t: +at.toFixed(2), d: +d.toFixed(2), text: g.join(' ')});
+      at += d;
+    });
+    cursor = at;
+  }
+
+  rows.sort((a,b) => a.t - b.t);
+  // a card that runs into the next one reads as a mistake, so trim the overlap
+  for(let i=0;i<rows.length-1;i++){
+    const room = rows[i+1].t - rows[i].t;
+    if(room > .2 && rows[i].d > room) rows[i].d = +(room - .02).toFixed(2);
+  }
+  return rows;
+}
+
+/* A disabled control that will not say why is the worst thing in an app whose
+   whole premise is that a failure should name its own cause. This one sat
+   greyed out with the explanation locked behind the click it would not accept. */
+function paintAsrWhy(){
+  const why = $('asrwhy');
+  if(state.file || ASR.busy){ why.hidden = true; $('asrgo').title = ''; return; }
+  const msg = SP.token
+    ? 'Greyed out because Spotify is driving the clock, and Spotify\'s stream is encrypted — there is no audio here to read. Load the same track as a file under Audio → Load track, and this lights up.'
+    : 'Greyed out because there is no audio to read yet. Load a track under Audio → Load track. Tab capture and the mic are live streams and cannot be re-read, so a file is the one source this works from.';
+  why.textContent = msg;
+  $('asrgo').title = msg;
+  why.hidden = false;
+}
+
+function paintAsrUi(pct, note){
+  $('asrgo').disabled   = ASR.busy || !state.file;
+  paintAsrWhy();
+  $('asrstop').hidden   = !ASR.busy;
+  $('asrlang').disabled = ASR.busy;
+  $('asrmodel').disabled= ASR.busy;
+  $('asrgo').textContent = ASR.busy ? 'Working…' : 'Transcribe the track';
+  if(pct !== undefined) $('asrbar').value = Math.round(clamp(pct,0,1)*100);
+  if(note !== undefined) $('v-asr').textContent = note;
+}
+
+async function runTranscribe(){
+  if(ASR.busy) return;
+  if(!state.file){
+    DIAG.say('Transcription reads the decoded track, so it needs a local file. Tab capture and Spotify are streams — there is nothing to decode. Load a file under Audio.', 's-bad');
+    return;
+  }
+  ASR.busy = true; ASR.cancel = false;
+  const model = $('asrmodel').value;
+  const lang  = $('asrlang').value;
+  paintAsrUi(0, 'decoding');
+  DIAG.set('d-asr', 'decoding', 's-warn');
+
+  try{
+    const {pcm, rate, duration} = await decodeForAsr(state.file);
+    if(ASR.cancel) throw {cancelled:true};
+
+    paintAsrUi(0, 'fetching model');
+    DIAG.set('d-asr', 'fetching model', 's-warn');
+    DIAG.say('Fetching ' + model.split('/').pop() + '. First run only — the browser caches it, and every run after this one is offline.', 's-warn');
+    const pipe = await loadAsr(model, (file, frac) => paintAsrUi(frac*.35, 'model ' + Math.round(frac*100) + '%'));
+    if(ASR.cancel) throw {cancelled:true};
+
+    DIAG.set('d-asr', 'running on ' + ASR.device, 's-warn');
+    DIAG.say('Listening on ' + (ASR.device === 'webgpu' ? 'the GPU' : 'the CPU — slower; a WebGPU browser is much faster') + '. ' +
+      'Reading ' + duration.toFixed(0) + 's of audio' + (lang ? ' as ' + $('asrlang').selectedOptions[0].textContent : ', detecting the language') + '. Watch the bar; Stop ends it after the window it is on.', 's-warn');
+
+    const win = Math.round(ASR.WIN*rate), hop = Math.round((ASR.WIN - ASR.OVERLAP)*rate);
+    const opts = {return_timestamps:true, task:'transcribe'};
+    if(lang) opts.language = lang;
+
+    const all = [];
+    let covered = 0, windows = 0;
+    for(let start = 0; start < pcm.length; start += hop){
+      if(ASR.cancel) break;
+      const seg = pcm.subarray(start, Math.min(pcm.length, start + win));
+      if(seg.length < rate*.4) break;                  // a sliver of tail is not worth a pass
+      const offset = start/rate;
+
+      const out = await pipe(seg, opts);
+      windows++;
+
+      /* Windows overlap so a word split across a boundary is heard whole by
+         one of them. Keep the first hearing and drop the second. */
+      for(const c of (out.chunks || [{text:out.text, timestamp:[0, seg.length/rate]}])){
+        const ts = c.timestamp || [];
+        const a = (Number.isFinite(ts[0]) ? ts[0] : 0) + offset;
+        const b = Number.isFinite(ts[1]) ? ts[1] + offset : null;
+        if(a < covered - .05) continue;
+        all.push({text:c.text, timestamp:[a, b]});
+      }
+      covered = Math.max(covered, offset + (ASR.WIN - ASR.OVERLAP));
+      const done = Math.min(1, (start + win)/pcm.length);
+      paintAsrUi(.35 + done*.65, Math.round(done*100) + '%');
+      DIAG.set('d-asr', Math.round(done*100) + '% · ' + ASR.device, 's-warn');
+      await new Promise(r => setTimeout(r, 0));        // let the stage paint between windows
+    }
+
+    const rows = chunksToRows(all, {perLine: clamp(parseInt($('perline').value)||6, 2, 14), duration});
+    if(!rows.length){
+      DIAG.say(ASR.cancel ? 'Stopped before anything came back.' :
+        'The model heard no words in that. On a dense master it often cannot pick vocals out of the mix — try the Small model, or run it on an a cappella or a vocal stem if you have one.', 's-warn');
+      DIAG.set('d-asr', 'nothing heard', 's-warn');
+    } else {
+      pushHistory();
+      $('script').value = rows.map(r => r.t.toFixed(2) + ' | ' + r.d.toFixed(2) + ' | ' + r.text).join('\n');
+      applyScript(true);
+      state.timed = true;
+      refreshDiag();
+      DIAG.set('d-asr', rows.length + ' cards', 's-ok');
+      DIAG.say(rows.length + ' cards from ' + windows + ' window' + (windows>1?'s':'') +
+        (ASR.cancel ? ' before you stopped it' : '') +
+        '. Read it against the track before you trust it — the timings are usually better than the words. Fix the text in the script box; nudge the timing on the timeline.', 's-ok');
+    }
+  }catch(e){
+    if(e && e.cancelled){
+      DIAG.say('Stopped.', 's-warn');
+      DIAG.set('d-asr', 'stopped', 's-warn');
+    } else {
+      console.error('[kinetic] transcription failed:', e);
+      DIAG.say('Transcription failed: ' + (e && e.message ? e.message : e) +
+               '\nThe browser console (F12) has the underlying error if this is not enough to go on.', 's-bad');
+      DIAG.set('d-asr', 'failed', 's-bad');
+    }
+  }finally{
+    ASR.busy = false; ASR.cancel = false;
+    paintAsrUi(0, '—');
+  }
 }
 
 /* ================================================================ transport
@@ -1628,6 +2383,11 @@ const SP = {
     }
 
     DIAG.set('d-spot', (this.playing ? '▶ ' : '❚❚ ') + this.track.name + ' — ' + this.track.artist, 's-ok');
+    const tag = $('h-track');
+    tag.innerHTML = (this.playing ? '▶ ' : '❚❚ ') + '<b></b> — <span></span>';
+    tag.querySelector('b').textContent = this.track.name;
+    tag.querySelector('span').textContent = this.track.artist;
+    tag.hidden = false;
     if(fresh){
       $('pname').value = $('pname').value || (this.track.artist + ' — ' + this.track.name);
       if(autoArt && this.track.art) useArtwork();
@@ -1655,6 +2415,7 @@ const SP = {
     this.token = this.refresh = null; this.track = this.anchor = null; this.expires = 0;
     try{ localStorage.removeItem('kt.sp'); }catch(e){}
     DIAG.set('d-spot', why || 'signed out', 's-warn');
+    $('h-track').hidden = true;
     refreshDiag();
   }
 };
@@ -1666,7 +2427,13 @@ async function useArtwork(){
     await addRemoteImage(SP.track.art, SP.track.name + ' — cover');
     paintThumbs(); refreshDiag();
     if(state.tainted){
-      DIAG.say('Artwork loaded, but Spotify\'s CDN did not send CORS headers for it, so the canvas is now tainted and recording is disabled.\nScreenshot the cover and drop it in as a file to get the export back.', 's-warn');
+      /* Nothing client-side can untaint this: the CDN decides, and it says no.
+         So the next best thing is making the two-step fix one click shorter —
+         open the image, save it, drop it back in as a file. */
+      $('artopen').hidden = false;
+      DIAG.say('Artwork loaded, but Spotify\'s CDN sends no CORS headers for it, so the canvas is tainted and both export and stills are now off. ' +
+               'Nothing in the page can undo that — the fix is to hold the file yourself: press "Open the cover to save it", save the image, then drop it into Plates. ' +
+               'Same picture, clean canvas, export back — and it persists across reloads, which the remote one never does.', 's-warn');
     } else {
       DIAG.say('Cover art added as a plate. Blur it, tint it, and put the type on top.', 's-ok');
     }
@@ -1687,12 +2454,52 @@ function sizeTimeline(){
   tctx.setTransform(dpr,0,0,dpr,0,0);
 }
 
-const t2x = t => (t/Math.max(.01, duration()))*TW;
-const x2t = x => (x/TW)*duration();
+/* The timeline shows a window onto the track, not always the whole of it.
+   On a 370px phone a three minute song gives a 2.4s card four pixels — not
+   something you can select, let alone drag. span:null means "the whole
+   track", which is the state every desktop edit started in and still does. */
+const MINSPAN = 1.2;
+const view = {start:0, span:null};
+const viewSpan = () => Math.min(view.span || Infinity, Math.max(.01, duration()));
+
+const t2x = t => ((t - view.start)/viewSpan())*TW;
+const x2t = x => view.start + (x/TW)*viewSpan();
+
+function clampView(){
+  const dur = Math.max(.01, duration());
+  if(view.span === null || view.span >= dur){ view.span = null; view.start = 0; return; }
+  view.span  = clamp(view.span, MINSPAN, dur);
+  view.start = clamp(view.start, 0, dur - view.span);
+}
+
+/* Zoom about a point in time rather than about the centre, so whatever was
+   under the cursor or between the fingers stays there. */
+function zoomAt(t, factor){
+  const dur = Math.max(.01, duration());
+  const span0 = viewSpan();
+  const frac = clamp((t - view.start)/span0, 0, 1);
+  const span = clamp(span0*factor, MINSPAN, dur);
+  if(span >= dur){ view.span = null; view.start = 0; return; }
+  view.span = span;
+  view.start = t - frac*span;
+  clampView();
+}
+function fitView(){ view.span = null; view.start = 0; }
 
 function drawTimeline(now){
   if(!TW) return;
   const dur = Math.max(.01, duration());
+  clampView();
+
+  /* Keep the playhead in frame while it runs, but page rather than scroll:
+     a window that creeps under a moving playhead is unreadable. */
+  if(view.span !== null && transport.playing){
+    const span = viewSpan();
+    if(now < view.start + span*.04 || now > view.start + span*.92){
+      view.start = clamp(now - span*.3, 0, dur - span);
+    }
+  }
+
   tctx.clearRect(0,0,TW,TH);
   tctx.fillStyle = '#171B28'; tctx.fillRect(0,0,TW,TH);
 
@@ -1701,7 +2508,8 @@ function drawTimeline(now){
     tctx.fillStyle = '#2C3348';
     const n = state.peaks.length;
     for(let x=0;x<TW;x++){
-      const v = state.peaks[Math.floor(x/TW*n)] || 0;
+      const i = Math.floor(x2t(x)/dur*n);
+      const v = (i >= 0 && i < n ? state.peaks[i] : 0) || 0;
       const h = Math.max(1, v*waveH);
       tctx.fillRect(x, waveH/2 + 2 - h/2, 1, h);
     }
@@ -1725,11 +2533,13 @@ function drawTimeline(now){
   const top = waveH + 5, h = TH - top - 4;
   state.lines.forEach((l,i) => {
     const x = t2x(l.t), w = Math.max(3, t2x(l.t + l.d) - x);
+    if(x > TW || x + w < 0) return;
     const on = i === state.sel;
     tctx.fillStyle = on ? '#FF4A17' : '#39405A';
     tctx.beginPath();
     if(tctx.roundRect) tctx.roundRect(x, top, w, h, 2); else tctx.rect(x, top, w, h);
     tctx.fill();
+    if(l.ov){ tctx.fillStyle = '#4E6BFF'; tctx.fillRect(x, top, Math.min(w, 3), h); }
     if(w > 26){
       tctx.save();
       tctx.beginPath(); tctx.rect(x+3, top, w-6, h); tctx.clip();
@@ -1742,28 +2552,61 @@ function drawTimeline(now){
   });
 
   const px = t2x(now);
-  tctx.fillStyle = '#F2EDE4'; tctx.fillRect(px-1, 0, 2, TH);
-  tctx.fillStyle = '#F2EDE4';
-  tctx.beginPath(); tctx.moveTo(px-5,0); tctx.lineTo(px+5,0); tctx.lineTo(px,7); tctx.fill();
+  if(px >= -6 && px <= TW+6){
+    tctx.fillStyle = '#F2EDE4'; tctx.fillRect(px-1, 0, 2, TH);
+    tctx.beginPath(); tctx.moveTo(px-5,0); tctx.lineTo(px+5,0); tctx.lineTo(px,7); tctx.fill();
+  }
+
+  /* Where this window sits in the whole track. Three pixels, but without it
+     a zoomed timeline is a map with no "you are here". */
+  if(view.span !== null){
+    tctx.fillStyle = 'rgba(0,0,0,.55)'; tctx.fillRect(0,0,TW,3);
+    tctx.fillStyle = '#FF4A17';
+    tctx.fillRect(view.start/dur*TW, 0, Math.max(8, view.span/dur*TW), 3);
+  }
 }
 
 let drag = null;
-function tlHit(x, y){
+/* slop widens both the block and its stretch handle for a finger. The handle
+   is never allowed to eat more than a third of a block, or short cards would
+   become impossible to move. */
+function tlHit(x, y, slop){
   const top = TH*.44 + 5;
-  if(y < top) return null;
+  if(y < top - slop) return null;
   for(let i=state.lines.length-1;i>=0;i--){
     const l = state.lines[i];
     const x0 = t2x(l.t), x1 = t2x(l.t + l.d);
-    if(x >= x0-2 && x <= x1+2) return {i, edge:(x > x1-7)};
+    if(x >= x0-slop && x <= x1+slop){
+      const edgeW = Math.min(7 + slop*2, (x1-x0)/3);
+      return {i, edge:(x > x1 - edgeW)};
+    }
   }
   return null;
 }
 
+/* Every live pointer on the timeline. One is a drag; two is a pinch, and a
+   pinch cancels whatever drag the first finger had started — otherwise
+   zooming would drag a card halfway across the track on the way. */
+const ptrs = new Map();
+let pinch = null;
+const localX = e => e.clientX - tlWrap.getBoundingClientRect().left;
+
 tlWrap.addEventListener('pointerdown', e => {
   const r = tlWrap.getBoundingClientRect();
   const x = e.clientX - r.left, y = e.clientY - r.top;
-  const hit = tlHit(x, y);
-  tlWrap.setPointerCapture(e.pointerId);
+  ptrs.set(e.pointerId, x);
+  try{ tlWrap.setPointerCapture(e.pointerId); }catch(err){}
+
+  if(ptrs.size === 2){
+    const [a,b] = [...ptrs.values()];
+    if(drag && drag.mode !== 'seek') undo();     // unwind the half-started drag
+    drag = null;
+    pinch = {d0:Math.max(12, Math.abs(a-b)), span0:viewSpan(), t0:x2t((a+b)/2)};
+    return;
+  }
+  if(ptrs.size > 2) return;
+
+  const hit = tlHit(x, y, e.pointerType === 'mouse' ? 2 : 11);
   if(hit){
     state.sel = hit.i;
     pushHistory();
@@ -1777,9 +2620,23 @@ tlWrap.addEventListener('pointerdown', e => {
 });
 
 tlWrap.addEventListener('pointermove', e => {
+  if(!ptrs.has(e.pointerId)) return;
+  const x = localX(e);
+  ptrs.set(e.pointerId, x);
+
+  if(pinch && ptrs.size >= 2){
+    const [a,b] = [...ptrs.values()];
+    const d = Math.max(12, Math.abs(a-b));
+    const dur = Math.max(.01, duration());
+    const span = clamp(pinch.span0 * pinch.d0/d, MINSPAN, dur);
+    if(span >= dur){ fitView(); return; }
+    view.span = span;
+    view.start = pinch.t0 - ((a+b)/2/TW)*span;   // hold the time between the fingers
+    clampView();
+    return;
+  }
+
   if(!drag) return;
-  const r = tlWrap.getBoundingClientRect();
-  const x = e.clientX - r.left;
   if(drag.mode === 'seek'){ transport.seek(x2t(x)); return; }
   const dt = x2t(x) - x2t(drag.x0);
   const l = state.lines[drag.i];
@@ -1787,12 +2644,33 @@ tlWrap.addEventListener('pointermove', e => {
   else l.d = Math.max(.12, snapT(drag.t0 + drag.d0 + dt) - l.t);
 });
 
-const endDrag = () => {
+const endDrag = e => {
+  if(e && e.pointerId !== undefined) ptrs.delete(e.pointerId);
+  if(ptrs.size < 2) pinch = null;
+  if(ptrs.size) return;                          // fingers still down
   if(drag && drag.mode !== 'seek'){ state.lines.sort((a,b) => a.t - b.t); syncScript(); }
   drag = null;
 };
 tlWrap.addEventListener('pointerup', endDrag);
 tlWrap.addEventListener('pointercancel', endDrag);
+
+/* Wheel zooms about the cursor. A trackpad pinch arrives here as ctrl+wheel,
+   which is the same gesture and wants the same answer. */
+tlWrap.addEventListener('wheel', e => {
+  if(!duration()) return;
+  e.preventDefault();
+  const x = localX(e);
+  if(e.shiftKey && !e.ctrlKey){                  // shift-wheel pans instead
+    if(view.span === null) return;
+    view.start += (e.deltaY || e.deltaX)/TW * viewSpan();
+    clampView();
+    return;
+  }
+  zoomAt(x2t(x), Math.exp((e.deltaY || 0) * .0016));
+}, {passive:false});
+
+/* Double-tap or double-click the timeline to go back to the whole track. */
+tlWrap.addEventListener('dblclick', () => fitView());
 
 function snapT(t){
   if(!state.snap || !state.beats.length) return t;
@@ -1815,11 +2693,13 @@ function undo(){
 function syncScript(){
   $('script').value = serialise();
   state.timed = true;
+  markDirty();
   paintRows();
   refreshDiag();
 }
 
 function applyScript(quiet){
+  markDirty();
   const {lines, timed} = parseScript($('script').value);
   state.lines = lines;
   state.timed = timed;
@@ -1838,7 +2718,7 @@ function paintRows(){
   const frag = document.createDocumentFragment();
   state.lines.forEach((l,i) => {
     const row = document.createElement('div');
-    row.className = 'lrow' + (i === state.sel ? ' on' : '');
+    row.className = 'lrow' + (i === state.sel ? ' on' : '') + (l.ov ? ' ov' : '');
     const t = document.createElement('input'); t.value = l.t.toFixed(2); t.title = 'start';
     const d = document.createElement('input'); d.value = l.d.toFixed(2); d.title = 'duration';
     const x = document.createElement('input'); x.value = l.text; x.className = 'txt';
@@ -1861,6 +2741,42 @@ function paintRows(){
     frag.appendChild(row);
   });
   box.appendChild(frag);
+  paintOv();
+}
+
+/* ------------------------------------------------- per-card override panel
+   Empty means "as the deck". Every control writes straight into the card's
+   own ov object and reserialises, so the panel and the fourth field in the
+   script are two views of one thing and cannot disagree. */
+function ovSet(key, v){
+  const l = state.lines[state.sel];
+  if(!l) return;
+  pushHistory();
+  const ov = Object.assign({}, l.ov);
+  if(v === null || v === '' || v === undefined) delete ov[key];
+  else ov[key] = v;
+  l.ov = Object.keys(ov).length ? ov : null;
+  syncScript();
+}
+
+function paintOv(){
+  const l = state.lines[state.sel];
+  const ov = (l && l.ov) || {};
+  $('ovgrp').classList.toggle('off', !l);
+  $('ovwho').textContent = l ? '· card ' + (state.sel+1) : '· select a card first';
+
+  $('ov-anim').value  = ov.anim    || '';
+  $('ov-font').value  = ov.font    || '';
+  $('ov-align').value = ov.align   || '';
+  $('ov-treat').value = ov.treat   || '';
+  $('ov-hit').value   = ov.hitmode || '';
+  $('ov-size').value  = ov.size  !== undefined ? ov.size  : '';
+  $('ov-posy').value  = ov.posy  !== undefined ? ov.posy  : '';
+
+  $('ov-usecolor').classList.toggle('on', ov.ctext !== undefined);
+  $('ov-useaccent').classList.toggle('on', ov.chit !== undefined);
+  $('ov-color').value  = ov.ctext || S.ctext;
+  $('ov-accent').value = ov.chit  || S.chit;
 }
 
 function paintThumbs(){
@@ -1872,7 +2788,11 @@ function paintThumbs(){
     el.src = m.url; if(m.kind === 'vid'){ el.muted = true; el.playsInline = true; }
     const n = document.createElement('span'); n.className = 'n'; n.textContent = i+1;
     const x = document.createElement('span'); x.className = 'x'; x.textContent = '✕';
-    x.onclick = () => { try{ URL.revokeObjectURL(m.url); }catch(e){} media.splice(i,1); paintThumbs(); refreshDiag(); };
+    x.onclick = () => {
+      try{ URL.revokeObjectURL(m.url); }catch(e){}
+      if(m.id) VAULT.del(m.id);
+      media.splice(i,1); paintThumbs(); refreshDiag(); markDirty();
+    };
     d.append(el,n,x);
     box.appendChild(d);
   });
@@ -1880,10 +2800,16 @@ function paintThumbs(){
 
 /* ------------------------------------------------------------ tap to time */
 const TAP = {on:false, i:0, stack:[]};
+function paintTapUi(){
+  $('tap').classList.toggle('armed', TAP.on);
+  $('untapbtn').hidden = !TAP.on;
+  $('endtapbtn').hidden = !TAP.on;
+  document.body.classList.toggle('tapping', TAP.on);
+}
 function endTap(msg){
   TAP.on = false;
-  $('tap').classList.remove('armed');
   $('tap').textContent = 'Tap to time';
+  paintTapUi();
   if(msg) DIAG.say(msg, 's-ok');
 }
 function doTap(){
@@ -1892,9 +2818,11 @@ function doTap(){
 
   if(!TAP.on){
     TAP.on = true; TAP.i = 0; TAP.stack = [];
-    $('tap').classList.add('armed');
     $('tap').textContent = 'Tap — card 1';
-    DIAG.say('Armed. Start playback, then tap once as each card should land. Press Z to take back the last tap, Escape to stop.', 's-warn');
+    paintTapUi();
+    DIAG.say(COARSE
+      ? 'Armed. Start playback, then tap the picture — or this button — once as each card should land. Undo tap takes the last one back, Done stops.'
+      : 'Armed. Start playback, then tap once as each card should land. Press Z to take back the last tap, Escape to stop.', 's-warn');
     return;
   }
 
@@ -2027,15 +2955,363 @@ function setRatio(key){
   $('h-ratio').innerHTML = key + ' · <b>' + w + '×' + h + '</b>';
 }
 
+/* WebM first because VP9 is the better encoder and every desktop browser that
+   records has it. Safari — which is to say every browser on an iPhone — has no
+   WebM muxer at all and records fragmented MP4 instead, so the H.264 rungs
+   below are what make the export work on a phone. */
+/* =============================================================== webm muxer
+   Written out longhand rather than pulled from a CDN. Export is the point of
+   the app — it is not allowed to stop working because somebody's network
+   blocks a script host, which is a risk worth taking for an opt-in extra like
+   transcription and not for the one button everything else leads to.
+
+   Matroska is elements all the way down: an id, a length as a variable-width
+   integer, then the payload. Everything is buffered and the lengths written
+   once they are known, which is simpler and safer than backfilling, and costs
+   nothing here because a finished render is in memory anyway. */
+const EBML = {
+  /* Lengths carry their own width: the position of the first set bit says how
+     many bytes to read. 7 usable bits per byte, and the all-ones value of each
+     width is reserved for "unknown", hence < rather than <=. */
+  vint(n){
+    for(let w = 1; w <= 8; w++){
+      const max = Math.pow(2, 7*w) - 1;
+      if(n < max){
+        const out = new Uint8Array(w);
+        let v = n;
+        for(let i = w-1; i >= 0; i--){ out[i] = v & 0xFF; v = Math.floor(v/256); }
+        out[0] |= 1 << (8 - w);
+        return out;
+      }
+    }
+    throw new Error('element too large to describe');
+  },
+
+  cat(parts){
+    let n = 0;
+    for(const p of parts) n += p.length;
+    const out = new Uint8Array(n);
+    let at = 0;
+    for(const p of parts){ out.set(p, at); at += p.length; }
+    return out;
+  },
+
+  el(id, payload){
+    return EBML.cat([new Uint8Array(id), EBML.vint(payload.length), payload]);
+  },
+
+  uintVal(v){
+    const b = [];
+    let x = Math.max(0, Math.round(v));
+    do { b.unshift(x & 0xFF); x = Math.floor(x/256); } while(x > 0);
+    return new Uint8Array(b);
+  },
+  uint(id, v){ return EBML.el(id, EBML.uintVal(v)); },
+  float(id, v){ const b = new Uint8Array(8); new DataView(b.buffer).setFloat64(0, v); return EBML.el(id, b); },
+  str(id, t){ return EBML.el(id, new TextEncoder().encode(t)); },
+  master(id, parts){ return EBML.el(id, EBML.cat(parts)); }
+};
+
+const MKV = {
+  EBML:[0x1A,0x45,0xDF,0xA3], EBMLVersion:[0x42,0x86], EBMLReadVersion:[0x42,0xF7],
+  EBMLMaxIDLength:[0x42,0xF2], EBMLMaxSizeLength:[0x42,0xF3],
+  DocType:[0x42,0x82], DocTypeVersion:[0x42,0x87], DocTypeReadVersion:[0x42,0x85],
+  Segment:[0x18,0x53,0x80,0x67],
+  Info:[0x15,0x49,0xA9,0x66], TimecodeScale:[0x2A,0xD7,0xB1], Duration:[0x44,0x89],
+  MuxingApp:[0x4D,0x80], WritingApp:[0x57,0x41],
+  Tracks:[0x16,0x54,0xAE,0x6B], TrackEntry:[0xAE], TrackNumber:[0xD7], TrackUID:[0x73,0xC5],
+  TrackType:[0x83], CodecID:[0x86], CodecPrivate:[0x63,0xA2], FlagLacing:[0x9C],
+  CodecDelay:[0x56,0xAA], SeekPreRoll:[0x56,0xBB], DefaultDuration:[0x23,0xE3,0x83],
+  Video:[0xE0], PixelWidth:[0xB0], PixelHeight:[0xBA],
+  Audio:[0xE1], SamplingFrequency:[0xB5], Channels:[0x9F],
+  Cluster:[0x1F,0x43,0xB6,0x75], Timecode:[0xE7], SimpleBlock:[0xA3]
+};
+
+/* A block's timecode is relative to its cluster and signed 16-bit, so a
+   cluster cannot span more than ~32s. Keyframes open a new one anyway, which
+   is also what makes the result seekable. */
+function simpleBlock(track, relMs, key, data){
+  const head = EBML.cat([
+    EBML.vint(track),
+    (() => { const b = new Uint8Array(2); new DataView(b.buffer).setInt16(0, relMs); return b; })(),
+    new Uint8Array([key ? 0x80 : 0x00])
+  ]);
+  return EBML.el(MKV.SimpleBlock, EBML.cat([head, data]));
+}
+
+/* blocks: [{track, t (ms), key, data}] in any order; video track is 1. */
+function muxWebM(opt){
+  const blocks = opt.blocks.slice().sort((a,b) => a.t - b.t || a.track - b.track);
+
+  const header = EBML.master(MKV.EBML, [
+    EBML.uint(MKV.EBMLVersion, 1), EBML.uint(MKV.EBMLReadVersion, 1),
+    EBML.uint(MKV.EBMLMaxIDLength, 4), EBML.uint(MKV.EBMLMaxSizeLength, 8),
+    EBML.str(MKV.DocType, 'webm'), EBML.uint(MKV.DocTypeVersion, 2), EBML.uint(MKV.DocTypeReadVersion, 2)
+  ]);
+
+  const info = EBML.master(MKV.Info, [
+    EBML.uint(MKV.TimecodeScale, 1e6),                 // one tick = 1ms
+    EBML.float(MKV.Duration, Math.max(1, opt.durationMs)),
+    EBML.str(MKV.MuxingApp, 'kinetic-type'), EBML.str(MKV.WritingApp, 'kinetic-type')
+  ]);
+
+  const entries = [EBML.master(MKV.TrackEntry, [
+    EBML.uint(MKV.TrackNumber, 1), EBML.uint(MKV.TrackUID, 1), EBML.uint(MKV.TrackType, 1),
+    EBML.uint(MKV.FlagLacing, 0), EBML.str(MKV.CodecID, opt.videoCodec || 'V_VP9'),
+    EBML.uint(MKV.DefaultDuration, Math.round(1e9/opt.fps)),
+    EBML.master(MKV.Video, [EBML.uint(MKV.PixelWidth, opt.width), EBML.uint(MKV.PixelHeight, opt.height)])
+  ])];
+
+  if(opt.audio){
+    /* Pre-skip lives in OpusHead at byte 10, little endian. A decoder needs it
+       as CodecDelay or the track starts 80ms out of step with the picture. */
+    const head = opt.audio.head;
+    const preSkip = head && head.length >= 12 ? (head[10] | (head[11] << 8)) : 3840;
+    const delayNs = Math.round(preSkip/48000*1e9);
+    entries.push(EBML.master(MKV.TrackEntry, [
+      EBML.uint(MKV.TrackNumber, 2), EBML.uint(MKV.TrackUID, 2), EBML.uint(MKV.TrackType, 2),
+      EBML.uint(MKV.FlagLacing, 0), EBML.str(MKV.CodecID, 'A_OPUS'),
+      EBML.el(MKV.CodecPrivate, head),
+      EBML.uint(MKV.CodecDelay, delayNs),
+      EBML.uint(MKV.SeekPreRoll, 80000000),
+      EBML.master(MKV.Audio, [
+        EBML.float(MKV.SamplingFrequency, 48000),
+        EBML.uint(MKV.Channels, opt.audio.channels)
+      ])
+    ]));
+  }
+  const tracks = EBML.master(MKV.Tracks, entries);
+
+  const clusters = [];
+  let cur = null, base = 0;
+  const flush = () => { if(cur && cur.length) clusters.push(EBML.master(MKV.Cluster, [EBML.uint(MKV.Timecode, base)].concat(cur))); };
+
+  for(const b of blocks){
+    const keyframe = b.track === 1 && b.key;
+    if(!cur || (keyframe && cur.length) || b.t - base > 30000){
+      flush();
+      cur = []; base = b.t;
+    }
+    cur.push(simpleBlock(b.track, b.t - base, b.key, b.data));
+  }
+  flush();
+
+  const segment = EBML.master(MKV.Segment, [info, tracks].concat(clusters));
+  return new Blob([EBML.cat([header, segment])], {type:'video/webm'});
+}
+
 function pickMime(){
   const want = [
     'video/webm;codecs=vp9,opus',
     'video/webm;codecs=vp8,opus',
     'video/webm;codecs=vp9',
-    'video/webm'
+    'video/webm',
+    'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+    'video/mp4;codecs=avc1,mp4a.40.2',
+    'video/mp4;codecs=avc1',
+    'video/mp4'
   ];
   for(const m of want) if(window.MediaRecorder && MediaRecorder.isTypeSupported(m)) return m;
   return '';
+}
+const extFor = mime => /mp4/.test(mime) ? '.mp4' : '.webm';
+
+/* ============================================================ offline render
+   Recording plays the edit and films the screen, which means a three minute
+   track costs three minutes, the tab has to stay in front, and any frame the
+   machine drops is dropped in the file for good.
+
+   Nothing about this app needs that. render(t) has been a pure function from
+   time to pixels since the rewrite — so the frames can be produced as fast as
+   the encoder will take them, exactly one per frame interval, with no clock
+   involved at all. That is the whole reason it renders to canvas. */
+const OFF = {busy:false, cancel:false, accel:null};
+
+/* An offline frame is drawn on demand, so a video plate sitting at whatever
+   position it happened to be playing is wrong. Seek it to where this instant
+   of the edit says it should be. */
+function seekPlate(el, into){
+  if(!el.duration || !Number.isFinite(el.duration)) return Promise.resolve();
+  if(!el.paused) el.pause();
+  const want = Math.max(0, into % el.duration);
+  if(Math.abs(el.currentTime - want) < .004) return Promise.resolve();
+  return new Promise(res => {
+    let done = false;
+    const fin = () => { if(done) return; done = true; el.removeEventListener('seeked', fin); res(); };
+    el.addEventListener('seeked', fin);
+    try{ el.currentTime = want; }catch(e){ return fin(); }
+    setTimeout(fin, 150);            // a plate that will not seek must not stall the render
+  });
+}
+
+async function seekPlatesFor(t){
+  if(!media.some(m => m.kind === 'vid')) return;
+  const plan = plateAt(t);
+  if(!plan) return;
+  const want = [plan.cur];
+  if(plan.fadeIn < 1 && media.length > 1){
+    want.push(media[((plan.idx - 1) % media.length + media.length) % media.length]);
+  }
+  await Promise.all(want.filter(m => m && m.kind === 'vid').map(m => seekPlate(m.el, t - plan.start)));
+}
+
+/* Beat pulse and shake read AUD.level, which is fed by the live analyser —
+   and there is no live anything here. So the envelope is measured off the
+   decoded audio instead, which makes an offline render match the preview
+   rather than quietly dropping the motion the preview promised. */
+function envelopeOf(pcm, rate){
+  const hop = 512, n = Math.floor(pcm.length/hop);
+  const env = new Float32Array(n);
+  let peak = 1e-6;
+  for(let i=0;i<n;i++){
+    let sum = 0;
+    for(let j=0;j<hop;j++){ const v = pcm[i*hop+j]; sum += v*v; }
+    env[i] = Math.sqrt(sum/hop);
+    if(env[i] > peak) peak = env[i];
+  }
+  for(let i=0;i<n;i++) env[i] /= peak;       // the live meter is normalised too
+  return {env, rate: rate/hop};
+}
+
+/* 48k is what Opus wants, and what the envelope is measured against. */
+async function decodeSliceForExport(file, from, to){
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if(!AC) return null;
+  const ac = new AC();
+  let buf;
+  try{ buf = await ac.decodeAudioData(await file.arrayBuffer()); }
+  catch(e){ ac.close(); return null; }
+  ac.close();
+
+  const RATE = 48000;
+  const ch = Math.min(2, buf.numberOfChannels) || 1;
+  const len = Math.max(1, Math.round((to - from)*RATE));
+  const off = new OfflineAudioContext(ch, len, RATE);
+  const src = off.createBufferSource();
+  src.buffer = buf;
+  src.connect(off.destination);
+  src.start(0, Math.max(0, from), Math.max(.01, to - from));
+  const out = await off.startRendering();
+
+  const channels = [];
+  for(let c=0;c<ch;c++) channels.push(out.getChannelData(c));
+  return {channels, rate:RATE, frames:out.length};
+}
+
+/* VP9 only. VP8 is available almost everywhere VP9 is, and measuring it made
+   the case against: software VP8 at 1080x1920 ran at 0.14x real time here
+   against VP9's 0.9x — six times slower, for a worse file. A machine without
+   VP9 is better served by real-time recording than by a fallback that turns a
+   three minute song into twenty. */
+const offlineCodec = () => (window.VideoEncoder && window.VideoFrame) ? 'vp09.00.10.08' : null;
+
+async function renderOffline(from, to, onProgress){
+  const fps = S.fps;
+  const total = Math.max(1, Math.round((to - from)*fps));
+  const blocks = [];
+  const vcodec = offlineCodec();
+
+  /* Settle the configuration before drawing a single frame, so an encoder that
+     will not take this size is a message rather than a minute of wasted work.
+     Hardware first: it is the difference between comfortably faster than real
+     time and roughly level with it. */
+  let chosen = null, failed = null;
+  for(const hw of ['prefer-hardware', 'no-preference']){
+    const cfg = {codec:vcodec, width:DW, height:DH, bitrate:S.vbr*1e6, framerate:fps,
+                 latencyMode:'quality', hardwareAcceleration:hw};
+    try{
+      const probe = await VideoEncoder.isConfigSupported(cfg);
+      if(probe.supported){ chosen = probe.config || cfg; OFF.accel = hw; break; }
+    }catch(e){ failed = e; }
+  }
+  if(!chosen) throw new Error('no VP9 encoder here would take ' + DW + '×' + DH + (failed ? ': ' + failed.message : ''));
+
+  const venc = new VideoEncoder({
+    output: chunk => {
+      const d = new Uint8Array(chunk.byteLength);
+      chunk.copyTo(d);
+      blocks.push({track:1, t:Math.round(chunk.timestamp/1000), key:chunk.type === 'key', data:d});
+    },
+    error: e => { throw e; }
+  });
+  venc.configure(chosen);
+
+  /* --- audio, if there is a decodable file behind the edit --- */
+  let audio = null, levelAt = () => 0;
+  const slice = state.file ? await decodeSliceForExport(state.file, from, to) : null;
+  if(slice){
+    const {env, rate:erate} = envelopeOf(slice.channels[0], slice.rate);
+    levelAt = rel => env[clamp(Math.floor(rel*erate), 0, env.length-1)] || 0;
+
+    let head = null;
+    const aenc = new AudioEncoder({
+      output: (chunk, meta) => {
+        if(meta && meta.decoderConfig && meta.decoderConfig.description && !head) head = new Uint8Array(meta.decoderConfig.description);
+        const d = new Uint8Array(chunk.byteLength);
+        chunk.copyTo(d);
+        blocks.push({track:2, t:Math.round(chunk.timestamp/1000), key:true, data:d});
+      },
+      error: e => { throw e; }
+    });
+    const ch = slice.channels.length;
+    aenc.configure({codec:'opus', sampleRate:slice.rate, numberOfChannels:ch, bitrate:128000});
+
+    const step = slice.rate/2;                       // half a second at a time
+    for(let at=0; at<slice.frames; at+=step){
+      const n = Math.min(step, slice.frames - at);
+      const flat = new Float32Array(n*ch);           // f32-planar: each channel end to end
+      for(let c=0;c<ch;c++) flat.set(slice.channels[c].subarray(at, at+n), c*n);
+      aenc.encode(new AudioData({
+        format:'f32-planar', sampleRate:slice.rate, numberOfFrames:n,
+        numberOfChannels:ch, timestamp:Math.round(at/slice.rate*1e6), data:flat
+      }));
+      while(aenc.encodeQueueSize > 8) await new Promise(r => setTimeout(r, 1));
+    }
+    await aenc.flush();
+    aenc.close();
+    audio = {head: head || new Uint8Array(0), channels: ch};
+  }
+
+  /* --- the frames --- */
+  const liveLevel = AUD.level;
+  const gap = Math.max(1, Math.round(fps*2));        // a keyframe every two seconds
+  for(let n=0; n<total; n++){
+    if(OFF.cancel) break;
+    const rel = n/fps, t = from + rel;
+    AUD.level = levelAt(rel);                        // so pulse and shake match the preview
+    await seekPlatesFor(t);
+    render(t);
+    const frame = new VideoFrame(canvas, {timestamp:Math.round(rel*1e6), duration:Math.round(1e6/fps)});
+    venc.encode(frame, {keyFrame: n % gap === 0});
+    frame.close();
+    while(venc.encodeQueueSize > 8) await new Promise(r => setTimeout(r, 1));
+    if(n % 6 === 0){
+      onProgress(n/total, n);
+      await new Promise(r => setTimeout(r, 0));      // let the page breathe
+    }
+  }
+  AUD.level = liveLevel;
+  await venc.flush();
+  venc.close();
+
+  const vblocks = blocks.filter(b => b.track === 1);
+  if(!vblocks.length) throw new Error('the encoder produced no frames');
+
+  /* Measured, not requested. Stopping early used to leave the header claiming
+     the full span, so a nine second file held half a second of video and every
+     player believed the header. */
+  const lastMs = vblocks.reduce((m,b) => Math.max(m, b.t), 0) + Math.round(1000/fps);
+  if(OFF.cancel){
+    /* Audio was encoded up front, so trim what runs past the last frame kept. */
+    for(let i = blocks.length-1; i >= 0; i--) if(blocks[i].track === 2 && blocks[i].t > lastMs) blocks.splice(i, 1);
+  }
+
+  onProgress(1, total);
+  return {
+    blob: muxWebM({blocks, durationMs: lastMs, width: DW, height: DH, fps, videoCodec:'V_VP9', audio}),
+    seconds: lastMs/1000,
+    frames: vblocks.length
+  };
 }
 
 let recorder = null, recChunks = [], recStop = null;
@@ -2045,9 +3321,10 @@ function startRecord(){
     DIAG.say('Cannot record: the canvas is tainted by a cross-origin image, so the browser refuses to hand over its pixels. Remove the remote artwork plate and use a local copy.', 's-bad');
     return;
   }
-  if(!window.MediaRecorder){ DIAG.say('This browser has no MediaRecorder. Chrome, Edge or Firefox on desktop can record; iOS Safari cannot.', 's-bad'); return; }
+  if(!window.MediaRecorder){ DIAG.say('This browser has no MediaRecorder, so it cannot record. Chrome, Edge and Firefox can, and so can Safari 17.4 and later — including iOS. Everything else here still works; use Save this frame for stills.', 's-bad'); return; }
   const mime = pickMime();
-  if(!mime){ DIAG.say('No WebM encoder available in this browser.', 's-bad'); return; }
+  if(!mime){ DIAG.say('MediaRecorder is here but refused every codec — no WebM and no MP4. Stills still export.', 's-bad'); return; }
+  if(!canvas.captureStream){ DIAG.say('This browser will not hand over a stream from a canvas, so there is nothing to record. Save this frame still works.', 's-bad'); return; }
 
   const from = state.inPt, to = state.outPt !== null ? state.outPt : duration();
   if(to - from < .2){ DIAG.say('The in and out points are on top of each other. Widen the range or press Whole.', 's-bad'); return; }
@@ -2073,7 +3350,7 @@ function startRecord(){
   recorder.ondataavailable = e => { if(e.data && e.data.size) recChunks.push(e.data); };
   recorder.onstop = () => {
     const blob = new Blob(recChunks, {type:mime});
-    const name = ($('pname').value.trim() || 'kinetic-edit').replace(/[^\w\- ]+/g,'').trim().replace(/\s+/g,'-') + '.webm';
+    const name = ($('pname').value.trim() || 'kinetic-edit').replace(/[^\w\- ]+/g,'').trim().replace(/\s+/g,'-') + extFor(mime);
     download(blob, name);
     DIAG.set('d-rec', (blob.size/1048576).toFixed(1) + ' MB', 's-ok');
     DIAG.say('Rendered ' + (to-from).toFixed(1) + 's to ' + name + ' — ' + (blob.size/1048576).toFixed(1) + ' MB, ' + mime.split(';')[0] + '.', 's-ok');
@@ -2134,9 +3411,18 @@ const readProjects = () => { try{ return JSON.parse(localStorage.getItem(PKEY) |
 const writeProjects = p => { try{ localStorage.setItem(PKEY, JSON.stringify(p)); }catch(e){ DIAG.say('Browser storage is full or blocked — saved edits will not persist.', 's-warn'); } };
 
 function projectBlob(){
-  return {v:2, name:$('pname').value, look:Object.assign({}, S), script:$('script').value, bpm:state.bpm, beats:state.beats.slice(0,4000)};
+  return {
+    v:3, name:$('pname').value, look:Object.assign({}, S), script:$('script').value,
+    bpm:state.bpm, beats:state.beats.slice(0,4000),
+    /* ids, not bytes — the bytes are in the vault. A .json exported to another
+       machine therefore carries the edit but not the media, which is the same
+       deal as before and is now said out loud on the way back in. */
+    plates: media.filter(m => m.id).map(m => ({id:m.id, kind:m.kind, name:m.name})),
+    track: state.trackRef ? {id:state.trackRef.id, name:state.trackRef.name} : null
+  };
 }
-function loadBlob(j){
+
+async function loadBlob(j){
   if(!j || !j.look) { DIAG.say('That file is not a Kinetic Type project.', 's-bad'); return; }
   Object.assign(S, DEFAULTS, j.look);
   $('pname').value = j.name || '';
@@ -2145,7 +3431,142 @@ function loadBlob(j){
   syncControls();
   applyScript(true);
   setRatio(S.ratio);
-  DIAG.say('Loaded "' + (j.name || 'untitled') + '". Re-attach the track and the plates.', 's-ok');
+  DIAG.say('Loaded "' + (j.name || 'untitled') + '" — looking for its media…', 's-ok');
+
+  /* Loading anything at all settles the question the restore bar was asking,
+     so it stops asking it. */
+  $('restorebar').classList.remove('on');
+
+  clearMediaRefs();
+  const got   = await restorePlates(j.plates);
+  const track = await restoreTrack(j.track);
+
+  const parts = [];
+  if(got) parts.push(got + ' plate' + (got>1?'s':''));
+  if(track) parts.push('the track');
+  DIAG.say('Loaded "' + (j.name || 'untitled') + '"' +
+    (parts.length ? ', with ' + parts.join(' and ') + ' back from storage.'
+                  : '. No media was stored with it — drop the plates and the track back in.'),
+    parts.length ? 's-ok' : 's-warn');
+}
+
+/* Drop the on-screen plates without deleting their bytes: a load is replacing
+   what is shown, not discarding what other saved edits still point at. */
+function clearMediaRefs(){
+  media.forEach(m => { try{ URL.revokeObjectURL(m.url); }catch(e){} });
+  media.length = 0;
+  state.tainted = false;
+  DIAG.set('d-taint','clean','s-ok');
+  paintThumbs();
+}
+
+async function restoreTrack(ref){
+  if(!ref || !ref.id) return false;
+  const rec = await VAULT.get(ref.id);
+  if(!rec || !rec.blob) return false;
+  attachTrack(new File([rec.blob], rec.name || ref.name || 'track', {type:rec.blob.type}), ref.id);
+  return true;
+}
+
+/* ------------------------------------------------------------- autosave
+   Nothing here lives on a server, so the only copy of an edit is this tab.
+   iOS evicts a backgrounded tab whenever it feels like it, and a phone is
+   backgrounded constantly — you switch apps to find the lyrics and come back
+   to an empty deck. So: write the project blob on a lazy timer and on the way
+   out, and offer it back on the next boot rather than silently applying it,
+   because silently replacing what someone just typed is worse than losing it.
+   Media is still not covered; blobs do not fit in localStorage. */
+const AKEY = 'kt.autosave';
+let autoDirty = false, autoAt = 0;
+
+const readAuto = () => { try{ return JSON.parse(localStorage.getItem(AKEY) || 'null'); }catch(e){ return null; } };
+
+function writeAuto(){
+  if(!state.lines.length) return;
+  try{
+    localStorage.setItem(AKEY, JSON.stringify(Object.assign(projectBlob(), {at:Date.now()})));
+    autoDirty = false; autoAt = performance.now();
+  }catch(e){ /* quota or private mode: the explicit Save still reports it */ }
+}
+const markDirty = () => { autoDirty = true; };
+
+/* Lazy: at most one write every 4s while something is changing, so typing a
+   script does not serialise the whole project on every keystroke. */
+setInterval(() => { if(autoDirty && performance.now() - autoAt > 4000) writeAuto(); }, 1500);
+
+/* The moments a tab actually dies. pagehide is the one that fires on iOS;
+   beforeunload does not, reliably. */
+addEventListener('pagehide', () => { if(autoDirty) writeAuto(); });
+document.addEventListener('visibilitychange', () => {
+  if(document.visibilityState === 'hidden' && autoDirty) writeAuto();
+});
+
+function ago(ms){
+  const m = Math.round((Date.now() - ms)/60000);
+  if(m < 1) return 'a moment ago';
+  if(m < 60) return m + ' minute' + (m>1?'s':'') + ' ago';
+  const h = Math.round(m/60);
+  return h < 24 ? h + ' hour' + (h>1?'s':'') + ' ago' : Math.round(h/24) + ' day' + (h>24?'s':'') + ' ago';
+}
+
+function offerRestore(){
+  const j = readAuto();
+  if(!j || !j.script || !j.script.trim()) return;
+  if(j.script.trim() === $('script').value.trim()) return;   // that is what is already here
+  $('restorewhen').textContent = j.at ? ago(j.at) : 'earlier';
+  $('restorebar').classList.add('on');
+  $('restoreyes').onclick = () => {
+    loadBlob(j);
+    $('restorebar').classList.remove('on');
+    DIAG.say('Restored the edit from ' + (j.at ? ago(j.at) : 'earlier') + '. The track and the plates are not in there — re-attach them.', 's-ok');
+  };
+  $('restoreno').onclick = () => {
+    try{ localStorage.removeItem(AKEY); }catch(e){}
+    $('restorebar').classList.remove('on');
+  };
+}
+
+/* Bytes outlive the edits that pointed at them: delete a project, or discard
+   an autosave, and its plates would sit in the vault forever. So on every
+   boot, anything nothing references goes. Conservative by construction — it
+   only deletes what it can prove is unreachable. */
+async function sweepVault(){
+  const keys = await VAULT.keys();
+  /* An empty vault used to return here, which skipped the report and left the
+     panel showing a dash forever — "nothing stored yet" and "this line is
+     broken" looked identical. */
+  if(!keys.length) return reportStorage();
+  const live = new Set();
+  const note = j => {
+    if(!j) return;
+    (j.plates || []).forEach(p => p && p.id && live.add(p.id));
+    if(j.track && j.track.id) live.add(j.track.id);
+  };
+  Object.values(readProjects()).forEach(note);
+  note(readAuto());
+  media.forEach(m => m.id && live.add(m.id));
+  if(state.trackRef) live.add(state.trackRef.id);
+
+  let gone = 0;
+  for(const k of keys) if(!live.has(k)){ await VAULT.del(k); gone++; }
+  if(gone) DIAG.set('d-store', gone + ' orphan' + (gone>1?'s':'') + ' swept', '');
+  reportStorage();
+}
+
+async function reportStorage(){
+  const keys = await VAULT.keys();
+  if(!keys) return;
+  if(!keys.length) return DIAG.set('d-store', 'nothing stored yet', '');
+  let line = keys.length + (keys.length === 1 ? ' file' : ' files');
+  if(navigator.storage && navigator.storage.estimate){
+    try{
+      const {usage, quota} = await navigator.storage.estimate();
+      if(usage != null) line += ' · ' + (usage/1048576).toFixed(1) + ' MB';
+      if(quota) line += ' of ' + (quota/1048576).toFixed(0) + ' MB';
+      if(quota && usage/quota > .85) return DIAG.set('d-store', line, 's-warn');
+    }catch(e){}
+  }
+  DIAG.set('d-store', line, keys.length ? 's-ok' : '');
 }
 
 function listProjects(){
@@ -2167,6 +3588,8 @@ function refreshDiag(){
   DIAG.set('d-timed', state.timed ? 'yes' : 'provisional', state.timed ? 's-ok' : 's-warn');
   DIAG.set('d-media', media.length ? media.length + ' plate' + (media.length>1?'s':'') : 'none', media.length ? 's-ok' : '');
   $('detect').disabled = !state.file;
+  if(!ASR.busy){ $('asrgo').disabled = !state.file; paintAsrWhy(); }
+  $('detect').title = state.file ? '' : 'Needs a local audio file — there is nothing to analyse in a live stream.';
   $('snapbeats').disabled = !state.beats.length;
   $('rec').disabled = !state.lines.length || state.tainted;
   $('bpmhint').textContent = state.bpm
@@ -2205,7 +3628,12 @@ function chipRow(host, entries, key){
     const c = document.createElement('span');
     c.className = 'chip' + (S[key] === k ? ' on hot' : '');
     c.textContent = entries[k].label;
-    c.onclick = () => { S[key] = k; chipRow(host, entries, key); measureCache.clear(); };
+    c.onclick = () => {
+      S[key] = k;
+      if(key === 'anim' && ANIMS[k]){ S.indur = ANIMS[k].dur; const el = $('indur'); el.value = S.indur; if(el._paint) el._paint(); }
+      chipRow(host, entries, key);
+      measureCache.clear();
+    };
     box.appendChild(c);
   });
 }
@@ -2223,6 +3651,7 @@ function syncControls(){
   $$('#treats .chip').forEach(c => c.classList.toggle('on', c.dataset.t === S.treat));
   $('guidechip').classList.toggle('on', !!S.guides);
   $('qualchip').classList.toggle('on', S.quality >= 1);
+  $('qualchip').textContent = S.quality >= 1 ? 'Full-res preview' : 'Fast preview';
   onLookChange('bgmode');
 }
 
@@ -2239,7 +3668,10 @@ function frame(){
     if(t >= to - 1/S.fps) stopRecord();
   }
 
-  render(t);
+  /* The offline exporter owns the canvas while it runs — one more render(t)
+     from here between its draw and its capture and the file gets a frame from
+     the wrong instant. */
+  if(!OFF.busy) render(t);
   drawTimeline(t);
 
   const i = lineAt(t);
@@ -2302,6 +3734,17 @@ $('treats').addEventListener('click', e => {
 $('play').onclick = () => transport.toggle();
 $('stop').onclick = () => { transport.pause(); transport.seek(state.inPt); };
 $('tap').onclick  = doTap;
+$('untapbtn').onclick  = untap;
+$('endtapbtn').onclick = () => endTap('Tap mode off.');
+
+/* While tap mode is armed the picture itself is the tap pad. On a phone that
+   is the difference between timing a track and not: the thumb is already over
+   the stage, and it is the one target big enough to hit without looking. */
+$('stagewrap').addEventListener('pointerdown', e => {
+  if(!TAP.on) return;
+  e.preventDefault();
+  doTap();
+});
 $('mark').onclick = () => {
   const i = lineAt(transport.time);
   if(i < 0){ DIAG.say('No card under the playhead to bracket.', 's-warn'); return; }
@@ -2318,26 +3761,49 @@ $('setout').onclick   = () => { state.outPt = transport.time; paintRange(); };
 $('clrrange').onclick = () => { state.inPt = 0; state.outPt = null; paintRange(); };
 
 /* ---- local audio ---- */
-$('audiofile').addEventListener('change', async e => {
-  const f = e.target.files && e.target.files[0];
-  if(!f) return;
+/* One path in, whether the file came from the picker or back out of the
+   vault, so the two can never drift apart. */
+function attachTrack(f, id){
+  const keep = !id;
+  /* A restore has its own summary to print; letting loadedmetadata fire its
+     "Track ready" over the top of it loses the part that matters. */
+  restoringTrack = !keep;
+  id = id || vaultId('track');
   if(audio.src) URL.revokeObjectURL(audio.src);
   audio.src = URL.createObjectURL(f);
   audio.load();
   state.file = f;
+  state.trackRef = {id, name:f.name};
   AUD.kind = 'file';
+  if(keep) VAULT.put({id, kind:'track', name:f.name, blob:f});
   DIAG.set('d-audio', f.name.length > 26 ? f.name.slice(0,24) + '…' : f.name, 's-ok');
-  DIAG.say('Decoding ' + f.name + ' …');
   state.peaks = null; state.beats = []; state.bpm = 0;
+  fitView();
   refreshDiag();
+  markDirty();
+}
+
+$('audiofile').addEventListener('change', e => {
+  const f = e.target.files && e.target.files[0];
+  if(!f) return;
+  attachTrack(f);
+  DIAG.say('Decoding ' + f.name + ' …');
 });
 $('dropaudio').onclick = () => {
+  fitView();
   if(audio.src) URL.revokeObjectURL(audio.src);
   audio.removeAttribute('src'); audio.load();
-  state.file = null; state.peaks = null; state.beats = []; state.bpm = 0;
-  DIAG.set('d-audio','none','s-warn'); refreshDiag();
+  if(state.trackRef) VAULT.del(state.trackRef.id);
+  state.file = null; state.trackRef = null;
+  state.peaks = null; state.beats = []; state.bpm = 0;
+  DIAG.set('d-audio','none','s-warn'); refreshDiag(); markDirty();
 };
-audio.addEventListener('loadedmetadata', () => { refreshDiag(); DIAG.say('Track ready, ' + audio.duration.toFixed(1) + 's. Press play, then tap the cards in — or run Detect beats.', 's-ok'); });
+let restoringTrack = false;
+audio.addEventListener('loadedmetadata', () => {
+  refreshDiag();
+  if(restoringTrack){ restoringTrack = false; return; }
+  DIAG.say('Track ready, ' + audio.duration.toFixed(1) + 's. Press play, then tap the cards in — or run Detect beats.', 's-ok');
+});
 audio.addEventListener('ended', () => { transport.playing = false; syncPlayBtn(); });
 audio.addEventListener('error', () => {
   const codes = {1:'aborted', 2:'network error', 3:'decode failed', 4:'format not supported'};
@@ -2359,6 +3825,10 @@ $('spprev').onclick    = () => SP.control('prev');
 $('spsync').onclick    = () => { SP.anchor = null; SP.poll(); DIAG.say('Re-anchored to Spotify\'s reported position.', 's-ok'); };
 $('spid').addEventListener('change', () => { SP.id = $('spid').value.trim(); SP.save(); });
 $('artbg').onclick = useArtwork;
+$('artopen').onclick = () => {
+  if(SP.track && SP.track.art) window.open(SP.track.art, '_blank', 'noopener');
+  else DIAG.say('No cover to open — connect Spotify and start a track first.', 's-warn');
+};
 
 /* ---- analysis ---- */
 $('detect').onclick = async () => {
@@ -2398,6 +3868,12 @@ $('gridchip').onclick = e => { state.grid = !state.grid; e.target.classList.togg
 let deb;
 $('script').addEventListener('input', () => { clearTimeout(deb); deb = setTimeout(() => applyScript(), 320); });
 $('script').addEventListener('focus', pushHistory, {once:false});
+$('asrgo').onclick   = runTranscribe;
+$('asrstop').onclick = () => {
+  ASR.cancel = true;
+  DIAG.say('Stopping after the window it is in the middle of — whatever it has heard so far is kept.', 's-warn');
+};
+
 $('split').onclick     = splitLines;
 $('retime').onclick    = spaceEvenly;
 $('fillgaps').onclick  = closeGaps;
@@ -2414,6 +3890,37 @@ const nudge = dt => {
   state.lines.sort((a,b) => a.t - b.t);
   syncScript();
 };
+/* fill the two selects that mirror deck-wide lists */
+Object.entries(ANIMS).forEach(([k,v]) => {
+  const o = document.createElement('option'); o.value = k; o.textContent = v.label; $('ov-anim').appendChild(o);
+});
+FONTS.forEach(f => {
+  const o = document.createElement('option'); o.value = f.id; o.textContent = f.label; $('ov-font').appendChild(o);
+});
+
+$('ov-anim').onchange  = e => ovSet('anim',  e.target.value || null);
+$('ov-font').onchange  = e => { measureCache.clear(); ovSet('font', e.target.value || null); };
+$('ov-align').onchange = e => ovSet('align', e.target.value || null);
+$('ov-treat').onchange = e => ovSet('treat', e.target.value || null);
+$('ov-hit').onchange   = e => ovSet('hitmode', e.target.value || null);
+$('ov-size').onchange  = e => { measureCache.clear(); ovSet('size', e.target.value === '' ? null : clamp(parseFloat(e.target.value)||S.size, 16, 400)); };
+$('ov-posy').onchange  = e => ovSet('posy', e.target.value === '' ? null : clamp(parseFloat(e.target.value)||0, 0, 100));
+
+$('ov-usecolor').onclick  = () => ovSet('ctext', $('ov-usecolor').classList.contains('on')  ? null : $('ov-color').value);
+$('ov-useaccent').onclick = () => ovSet('chit',  $('ov-useaccent').classList.contains('on') ? null : $('ov-accent').value);
+$('ov-color').oninput  = e => { if($('ov-usecolor').classList.contains('on'))  ovSet('ctext', e.target.value); };
+$('ov-accent').oninput = e => { if($('ov-useaccent').classList.contains('on')) ovSet('chit',  e.target.value); };
+
+$('ovclear').onclick = () => {
+  const l = state.lines[state.sel];
+  if(!l || !l.ov){ DIAG.say('That card is already rendering with the deck look.', 's-warn'); return; }
+  pushHistory();
+  l.ov = null;
+  measureCache.clear();
+  syncScript();
+  DIAG.say('Card ' + (state.sel+1) + ' is back to the deck look.', 's-ok');
+};
+
 $('nudgeL').onclick = () => nudge(-0.05);
 $('nudgeR').onclick = () => nudge(0.05);
 $('dupline').onclick = () => {
@@ -2449,7 +3956,91 @@ document.addEventListener('dragover', e => e.preventDefault());
 document.addEventListener('drop', e => e.preventDefault());
 
 /* ---- export ---- */
-$('rec').onclick   = () => state.recording ? stopRecord() : startRecord();
+/* One owner for the chip's appearance. It used to be set in three places and
+   this function was the last to run, so it wiped the "no encoder here" state
+   and left the control looking live on a browser that cannot do it at all —
+   click it and the label promised an offline render while the real-time
+   recorder did the work. */
+function paintRenderUi(frac, note){
+  const live = OFF.busy || state.recording;
+  const can  = !!offlineCodec();
+  const chip = $('offchip');
+  chip.classList.toggle('on',  can && S.offline);
+  chip.classList.toggle('hot', can && S.offline);
+  chip.classList.toggle('off', live || !can);
+
+  $('offhint').textContent =
+      !can      ? (window.isSecureContext === false
+                    ? 'needs a secure page — plain http on a LAN address will not do'
+                    : 'needs WebCodecs — not in this browser')
+    : S.offline ? 'frame-exact, runs unattended'
+    :             'films the preview as it plays';
+
+  $('reccancel').hidden = !OFF.busy;
+  if(frac !== undefined) $('renderbar').value = Math.round(clamp(frac,0,1)*100);
+  if(note !== undefined) $('v-render').textContent = note;
+  if(!live) $('rec').textContent = (can && S.offline) ? '⚡ Render range' : '● Record range';
+}
+
+async function startOffline(){
+  if(state.tainted){
+    DIAG.say('Cannot render: a cross-origin plate has tainted the canvas, so the browser will not release its pixels. Swap the remote artwork for a local copy.', 's-bad');
+    return;
+  }
+  const from = state.inPt, to = state.outPt !== null ? state.outPt : duration();
+  if(!(to - from > .2)){ DIAG.say('The in and out points are on top of each other. Widen the range or press Whole.', 's-bad'); return; }
+
+  OFF.busy = true; OFF.cancel = false;
+  state.recording = true;                 // full resolution regardless of the preview setting
+  setRatio(S.ratio);
+  $('rec').textContent = '■ Stop';
+  $('rec').classList.add('rec');
+  $('h-rec').hidden = false;
+  paintRenderUi(0, 'starting');
+
+  const began = performance.now();
+  try{
+    if(!state.file) DIAG.say('No local file behind this edit, so the render will be silent. Load the track under Audio, or switch Offline render off and record in real time to capture tab audio.', 's-warn');
+    const made = await renderOffline(from, to, (frac, n) => {
+      const secs = (performance.now() - began)/1000;
+      const rate = (n > 0 && secs > .4) ? (n/S.fps)/secs : 0;
+      paintRenderUi(frac, Math.round(frac*100) + '%' + (rate ? ' · ' + rate.toFixed(1) + '× real time' : ''));
+      DIAG.set('d-rec', Math.round(frac*100) + '%', 's-warn');
+    });
+    const took = (performance.now() - began)/1000;
+    const {blob, seconds, frames} = made;
+    const name = ($('pname').value.trim() || 'kinetic-edit').replace(/[^\w\- ]+/g,'').trim().replace(/\s+/g,'-') + '.webm';
+    download(blob, name);
+    DIAG.set('d-rec', (blob.size/1048576).toFixed(1) + ' MB', 's-ok');
+    DIAG.say((OFF.cancel ? 'Stopped early — kept ' : 'Rendered ') + seconds.toFixed(1) + 's to ' + name + ' — ' +
+      frames + ' frames, ' + (blob.size/1048576).toFixed(1) + ' MB, ' + took.toFixed(1) + 's on ' +
+      (OFF.accel === 'prefer-hardware' ? 'a hardware encoder' : 'the CPU') +
+      (took > .3 ? ' (' + (seconds/took).toFixed(1) + '× real time)' : '') + '.', 's-ok');
+  }catch(e){
+    DIAG.set('d-rec', 'failed', 's-bad');
+    DIAG.say('Offline render failed: ' + ((e && e.message) || e) + '\nSwitch Offline render off to record in real time instead.', 's-bad');
+  }finally{
+    OFF.busy = false; OFF.cancel = false;
+    state.recording = false;
+    setRatio(S.ratio);
+    $('rec').classList.remove('rec');
+    $('h-rec').hidden = true;
+    paintRenderUi(0, '—');
+  }
+}
+
+$('rec').onclick = () => {
+  if(OFF.busy){ OFF.cancel = true; DIAG.say('Stopping — the frames already encoded are kept.', 's-warn'); return; }
+  if(state.recording) return stopRecord();
+  if(S.offline && offlineCodec()) return startOffline();
+  startRecord();
+};
+$('reccancel').onclick = () => { OFF.cancel = true; };
+$('offchip').onclick = () => {
+  if(!offlineCodec()) return;
+  S.offline = !S.offline;
+  paintRenderUi();
+};
 $('png').onclick   = savePng;
 $('sheet').onclick = contactSheet;
 $('qualchip').onclick = e => { S.quality = S.quality >= 1 ? .55 : 1; e.target.classList.toggle('on', S.quality >= 1); e.target.textContent = S.quality >= 1 ? 'Full-res preview' : 'Fast preview'; setRatio(S.ratio); };
@@ -2468,16 +4059,48 @@ $('pdel').onclick  = () => { const k = $('pslots').value; if(!k) return; const p
 $('pexport').onclick = () => download(new Blob([JSON.stringify(projectBlob(),null,2)],{type:'application/json'}), ($('pname').value.trim()||'kinetic') + '.json');
 $('pimport').addEventListener('change', async e => { const f = e.target.files[0]; if(!f) return; try{ loadBlob(JSON.parse(await f.text())); }catch(err){ DIAG.say('That JSON would not parse: ' + err.message, 's-bad'); } });
 
+/* Three sizes, because a phone has one screen and the two jobs want opposite
+   things from it: judging the picture wants the picture big, and writing the
+   script wants the panel big. Each label names the state the next tap lands on. */
+const PREVIEW = ['', 'tall', 'flat'];
+const PREVIEW_LABEL = {'':'⤢ Bigger', 'tall':'▾ Hide', 'flat':'▴ Show'};
+let previewAt = 0;
+$('bigger').onclick = () => {
+  const app = document.querySelector('.app');
+  previewAt = (previewAt + 1) % PREVIEW.length;
+  app.classList.remove('tall','flat');
+  if(PREVIEW[previewAt]) app.classList.add(PREVIEW[previewAt]);
+  $('bigger').textContent = PREVIEW_LABEL[PREVIEW[previewAt]];
+  setTimeout(sizeTimeline, 200);
+};
+
+$('diagtoggle').onclick = () => {
+  const open = $('diag').classList.toggle('open');
+  $('diagtoggle').setAttribute('aria-expanded', String(open));
+  $('diagcaret').textContent = open ? '▾' : '▸';
+};
+
+/* Every control in the panel funnels through here rather than each handler
+   remembering to flag itself. */
+['input','change','click'].forEach(k =>
+  document.querySelector('.right').addEventListener(k, markDirty, {passive:true}));
+
 $('undo').onclick = undo;
-$('help').onclick = () => DIAG.say(
-  'Space play/pause · ←/→ seek 1s (Shift 5s) · ,/. step one frame\n' +
-  'T arm or fire a tap · Z take back the last tap · Esc stop tapping\n' +
-  '[ / ] nudge the selected card 50ms · G safe guides · Ctrl+Z undo\n' +
-  'Click a timeline block to select and seek; drag it to move, drag its right edge to stretch.');
+$('help').onclick = () => DIAG.say(COARSE
+  ? 'Touch: Tap to time arms the timer — then tap the picture once per card.\n' +
+    'Undo tap takes the last one back, Done stops. ⤢ grows or shrinks the preview.\n' +
+    'Pinch the timeline to zoom in on a section, double-tap it to see the whole track.\n' +
+    'Drag a block to move it, drag its right edge to stretch it.\n' +
+    'Under Lines, ◀ −50ms and +50ms ▶ nudge the selected card.'
+  : 'Space play/pause · ←/→ seek 1s (Shift 5s) · ,/. step one frame\n' +
+    'T arm or fire a tap · Z take back the last tap · Esc stop tapping\n' +
+    '[ / ] nudge the selected card 50ms · G safe guides · Ctrl+Z undo\n' +
+    '- / = zoom the timeline · 0 fits the whole track · wheel zooms, shift-wheel pans\n' +
+    'Click a timeline block to select and seek; drag it to move, drag its right edge to stretch.');
 
 /* ---- keyboard ---- */
 addEventListener('keydown', e => {
-  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test((document.activeElement || {}).tagName || '');
   if(typing && e.key !== 'Escape') return;
   const big = e.shiftKey ? 5 : 1;
   switch(e.key){
@@ -2491,6 +4114,9 @@ addEventListener('keydown', e => {
     case '[': nudge(-0.05); break;
     case ']': nudge(0.05); break;
     case 'g': case 'G': S.guides = !S.guides; $('guidechip').classList.toggle('on', S.guides); break;
+    case '-': case '_': zoomAt(transport.time, 1.6); break;
+    case '=': case '+': zoomAt(transport.time, 1/1.6); break;
+    case '0': fitView(); break;
     case 'Escape': if(TAP.on) endTap('Tap mode off.'); break;
   }
 });
@@ -2498,6 +4124,46 @@ addEventListener('keydown', e => {
 /* ================================================================== init */
 FONTS.forEach(f => { const o = document.createElement('option'); o.value = f.id; o.textContent = f.label; $('font').appendChild(o); });
 S.clocksrc = 'auto';
+
+/* ---- what this device can actually do, said out loud rather than found out
+        halfway through an edit ---- */
+if(!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia){
+  $('captab').disabled = true;
+  $('captab').title = 'Tab audio sharing exists only in Chrome and Edge on a desktop.';
+}
+if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+  $('capmic').disabled = true;
+  $('capmic').title = 'No microphone API here — a secure origin (https or localhost) is required.';
+}
+(() => {
+  if(offlineCodec()){
+    DIAG.set('d-rec', 'webm · offline', 's-ok');
+  } else {
+    /* No encoder reachable: real-time recording is the only way out, so say so
+       once rather than letting somebody wonder why the fast option is missing.
+       On a phone this is nearly always the origin rather than the browser —
+       WebCodecs is gated on a secure context, and a LAN address over plain
+       http is not one. */
+    S.offline = false;
+    const m = window.MediaRecorder ? pickMime() : '';
+    DIAG.set('d-rec', m ? m.split(';')[0].replace('video/','') + ' · real time' : 'unavailable', m ? '' : 's-bad');
+    if(window.isSecureContext === false){
+      DIAG.say('This page is on a plain http address that is not localhost, so the browser withholds its secure-context features: no offline render, no microphone, and no Spotify sign-in. Recording in real time still works, and so does everything else. Serve over https, or reach it on 127.0.0.1, to get them back.', 's-warn');
+    }
+  }
+  paintRenderUi(0, '—');
+})();
+
+/* A phone repainting 1080×1920 every frame spends its whole budget on the
+   preview and drops the playback it is meant to be timed against. Half-res
+   preview costs nothing that matters — the recorder forces full resolution
+   back on regardless (see startRecord). */
+if(COARSE && NARROW) S.quality = .55;
+
+/* Rotating a phone changes every dimension the timeline canvas was sized
+   against, and orientationchange fires before the new metrics land. */
+addEventListener('orientationchange', () => setTimeout(sizeTimeline, 220));
+if(window.visualViewport) visualViewport.addEventListener('resize', () => sizeTimeline());
 $('spuri').textContent = location.protocol === 'file:' ? 'unavailable on file:// — serve the folder over http first' : SP.redirectUri;
 
 $('script').value =
@@ -2536,6 +4202,16 @@ if(document.fonts && document.fonts.ready){
   DIAG.set('d-font','unknown','s-warn');
 }
 if(!HAS_TRACKING) DIAG.set('d-font', 'no canvas tracking', 's-warn');
+
+if(COARSE){
+  DIAG.say('Touch: ⤢ grows the preview. Paste lyrics under Lines, then arm Tap to time and tap the picture once per card.', '');
+}
+
+offerRestore();
+autoDirty = false;                 // the placeholder deck is not worth saving
+
+if(window.indexedDB) sweepVault();
+else DIAG.set('d-store', 'no IndexedDB — media will not persist', 's-warn');
 
 requestAnimationFrame(frame);
 </script>
