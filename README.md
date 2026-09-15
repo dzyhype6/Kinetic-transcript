@@ -121,6 +121,26 @@ Or just the words, and let the timing come later. `start | duration | text`.
 - `//` forces a line break inside a card
 - `.lrc` imports and exports, so timings move between tools
 
+### One card, different
+
+A deck where every card animates identically is a deck, not an edit. So a row
+can carry a fourth field of `key=value` overrides that apply to that card
+alone:
+
+```
+12.40 | 2.10 | we run the block | anim=glitch size=200 color=#FF4A17
+14.50 | 1.90 | nobody knows      | font=bebas align=left hit=all
+```
+
+`anim` `font` `size` `posy` `align` `case` `treat` `hit` `color` `accent`
+`lh` `track` `stagger` `indur` `outdur`. Anything else — an unknown name, or a
+value out of range — makes the whole field text again, so a lyric that happens
+to read `cost=12` survives being typed.
+
+The seven most-used live in a panel under **Lines**, where empty means "as the
+deck". Cards carrying an override are marked in the list and striped blue on
+the timeline. The panel and the fourth field are two views of one thing.
+
 ## Timing a track
 
 1. Load the file, press play, hit **Tap to time**, tap once per card.

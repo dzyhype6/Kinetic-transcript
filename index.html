@@ -153,6 +153,8 @@
     background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r);padding:5px;
   }
   .lrow.on{border-color:var(--hot)}
+  .lrow.ov{box-shadow:inset 3px 0 0 var(--field)}
+  .grp.off{opacity:.4;pointer-events:none}
   .lrow input{padding:5px 5px;font-size:11px;font-family:ui-monospace,Menlo,monospace}
   .lrow input.txt{font-family:inherit;font-weight:600}
   .lrow .go{cursor:pointer;color:var(--dim);text-align:center;font-size:11px;font-weight:700;padding:5px 0;border-radius:3px}
@@ -612,6 +614,49 @@
         </div>
         <p class="hint">Click or tap a block on the timeline to select and seek. Drag it to move, drag its right edge to stretch. Pinch — or roll the wheel — to zoom into a section; double-tap to fit the whole track again. <code>[</code> and <code>]</code> nudge the selected card.</p>
       </div>
+
+      <div class="grp" id="ovgrp">
+        <h4>This card only <span id="ovwho" style="color:var(--dim);font-weight:600"></span></h4>
+        <div class="r">
+          <select id="ov-anim"><option value="">Animation — as the deck</option></select>
+        </div>
+        <div class="r">
+          <select id="ov-font"><option value="">Face — as the deck</option></select>
+        </div>
+        <div class="r">
+          <select id="ov-align">
+            <option value="">Align — deck</option>
+            <option value="center">Centre</option><option value="left">Left</option><option value="right">Right</option>
+          </select>
+          <select id="ov-treat">
+            <option value="">Treatment — deck</option>
+            <option value="none">Clean</option><option value="shadow">Shadow</option><option value="outline">Outline</option>
+            <option value="plate">Plate</option><option value="knock">Knockout</option>
+          </select>
+        </div>
+        <div class="r">
+          <select id="ov-hit">
+            <option value="">Accent word — deck</option>
+            <option value="long">Longest word</option><option value="mark">Only *starred*</option>
+            <option value="none">None</option><option value="all">Every word</option>
+            <option value="first">First word</option><option value="last">Last word</option>
+          </select>
+        </div>
+        <div class="r">
+          <div class="fld"><span class="lab">Size</span>
+            <input type="number" id="ov-size" min="16" max="400" step="1" placeholder="deck"></div>
+          <div class="fld"><span class="lab">Vertical</span>
+            <input type="number" id="ov-posy" min="0" max="100" step="1" placeholder="deck"></div>
+        </div>
+        <div class="r">
+          <span class="chip fix" id="ov-usecolor">Text</span>
+          <span class="fix" style="flex:0 0 auto"><input type="color" id="ov-color" value="#F2EDE4"></span>
+          <span class="chip fix" id="ov-useaccent">Accent</span>
+          <span class="fix" style="flex:0 0 auto"><input type="color" id="ov-accent" value="#FF4A17"></span>
+        </div>
+        <button id="ovclear" class="sm">Back to the deck look</button>
+        <p class="hint">Overrides ride on the card, in a fourth field: <code>12.40 | 2.10 | the hook | anim=glitch size=160</code>. Cards carrying one are marked in the list and on the timeline. Anything not listed here — <code>lh</code>, <code>track</code>, <code>stagger</code>, <code>indur</code>, <code>outdur</code> — can be typed into that field directly.</p>
+      </div>
     </div>
 
     <!-- ---------------- EXPORT ---------------- -->
@@ -1008,10 +1053,79 @@ const GRAIN = ctx.createPattern(noiseTile(),'repeat');
 const DOTS  = ctx.createPattern(dotTile(),'repeat');
 const SCAN  = ctx.createPattern(scanTile(),'repeat');
 
-/* ================================================================== script */
-// "start | duration | text", or a bare lyric line. Section headers go away.
+/* ================================================================== script
+   "start | duration | text", or a bare lyric line, optionally followed by a
+   fourth field of key=value overrides for that one card:
+
+       12.40 | 2.10 | we run the block | anim=glitch size=160 color=#FF4A17
+
+   A deck where every card animates identically is a deck, not an edit. The
+   fourth field is what makes one line hit differently from the rest without
+   splitting the project in two. Rows without it parse exactly as before. */
 const isHeader = r => /^[\[(].*[\])]$/.test(r);
-const rowText  = r => { const p = r.split('|'); return (p.length >= 3 ? p.slice(2).join('|') : p[0]).trim(); };
+
+const num  = (lo,hi) => v => { const n = parseFloat(v); return Number.isFinite(n) ? clamp(n,lo,hi) : null; };
+const pick = (...ok) => v => ok.includes(v) ? v : null;
+const hex  = v => /^#[0-9a-f]{6}$/i.test(v) ? v : (/^[0-9a-f]{6}$/i.test(v) ? '#' + v : null);
+
+/* name in the script -> key in the settings object, and what counts as valid.
+   Anything that does not validate is dropped rather than applied half-right. */
+const OVERRIDES = {
+  anim:    ['anim',    v => ANIMS[v] ? v : null],
+  font:    ['font',    v => FAM[v] !== undefined ? v : null],
+  size:    ['size',    num(16, 400)],
+  posy:    ['posy',    num(0, 100)],
+  align:   ['align',   pick('center','left','right')],
+  case:    ['case',    pick('upper','as','lower','title')],
+  treat:   ['treat',   pick('none','shadow','outline','plate','knock')],
+  hit:     ['hitmode', pick('long','mark','none','all','first','last')],
+  color:   ['ctext',   hex],
+  accent:  ['chit',    hex],
+  lh:      ['lh',      num(.5, 2.2)],
+  track:   ['track',   num(-20, 60)],
+  stagger: ['stagger', num(0, 600)],
+  indur:   ['indur',   num(.02, 3)],
+  outdur:  ['outdur',  num(0, 3)]
+};
+const OV_BY_KEY = {};
+for(const [name,[key]] of Object.entries(OVERRIDES)) OV_BY_KEY[key] = name;
+
+const OV_SHAPE = /^\s*[a-z]+\s*=\s*[^\s|]+(?:\s+[a-z]+\s*=\s*[^\s|]+)*\s*$/i;
+
+/* Only a field where *every* pair is a known key counts as overrides. One
+   unknown name and the whole field is treated as text, because a lyric that
+   happens to read "cost=12" should survive being typed. */
+function parseOv(field){
+  if(!field || !OV_SHAPE.test(field)) return null;
+  const out = {};
+  for(const pair of field.trim().split(/\s+/)){
+    const at = pair.indexOf('=');
+    const name = pair.slice(0, at).trim().toLowerCase(), raw = pair.slice(at+1).trim();
+    const spec = OVERRIDES[name];
+    if(!spec) return null;
+    const v = spec[1](raw);
+    if(v === null) return null;
+    out[spec[0]] = v;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+function ovText(ov){
+  if(!ov) return '';
+  return Object.keys(ov).map(k => (OV_BY_KEY[k] || k) + '=' + ov[k]).join(' ');
+}
+
+/* Split a row into its text and its overrides, whichever shape it is in. */
+function splitRow(r){
+  const p = r.split('|');
+  if(p.length < 3) return {text:p[0].trim(), ov:null};
+  if(p.length >= 4){
+    const ov = parseOv(p[p.length-1]);
+    if(ov) return {text:p.slice(2,-1).join('|').trim(), ov};
+  }
+  return {text:p.slice(2).join('|').trim(), ov:null};
+}
+const rowText = r => splitRow(r).text;
 
 function cleanRows(raw){
   return raw.split('\n').map(r => r.trim()).filter(Boolean).filter(r => !isHeader(r));
@@ -1025,17 +1139,17 @@ function parseScript(raw){
     const parts = row.split('|');
     if(parts.length >= 3){
       const t = parseFloat(parts[0]), d = parseFloat(parts[1]);
-      const text = parts.slice(2).join('|').trim();
+      const {text, ov} = splitRow(row);
       if(!text) continue;
       if(Number.isFinite(t)){
         anyTimed = true;
         const dur = Number.isFinite(d) && d > 0 ? d : 2.4;
-        out.push({t, d:dur, text});
+        out.push({t, d:dur, text, ov});
         cursor = Math.max(cursor, t + dur + .2);
         continue;
       }
     }
-    out.push({t:cursor, d:2.4, text:row});
+    out.push({t:cursor, d:2.4, text:row, ov:null});
     cursor += 2.6;
   }
   out.sort((a,b) => a.t - b.t);
@@ -1043,29 +1157,41 @@ function parseScript(raw){
 }
 
 function serialise(){
-  return state.lines.map(l => l.t.toFixed(2) + ' | ' + l.d.toFixed(2) + ' | ' + l.text).join('\n');
+  return state.lines.map(l => {
+    const tail = ovText(l.ov);
+    return l.t.toFixed(2) + ' | ' + l.d.toFixed(2) + ' | ' + l.text + (tail ? ' | ' + tail : '');
+  }).join('\n');
 }
 
+/* What this card actually renders with: the deck's settings, with its own
+   overrides laid on top. One object, computed once per frame, threaded down
+   through layout and drawing so nothing below has to know which is which. */
+const styleFor = line => (line && line.ov) ? Object.assign({}, S, line.ov) : S;
+
 // *stars* mark an accent word, // forces a break inside the card.
-function tokens(text){
+function tokens(text, E){
+  E = E || S;
   const out = [];
   for(const raw of text.split(/\s+/)){
     if(!raw) continue;
     if(raw === '//'){ out.push({br:true}); continue; }
     const mark = /^\*.*\*$/.test(raw);
     let w = mark ? raw.slice(1,-1) : raw;
-    if(S.case === 'upper') w = w.toUpperCase();
-    else if(S.case === 'lower') w = w.toLowerCase();
-    else if(S.case === 'title') w = w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+    /* toLocaleUpperCase, not toUpperCase: a deck that renders Turkish or
+       Greek in the wrong case is a deck that cannot render those languages. */
+    if(E.case === 'upper') w = w.toLocaleUpperCase();
+    else if(E.case === 'lower') w = w.toLocaleLowerCase();
+    else if(E.case === 'title') w = w.charAt(0).toLocaleUpperCase() + w.slice(1).toLocaleLowerCase();
     out.push({text:w, mark});
   }
   return out;
 }
 
-function hitIndex(toks){
+function hitIndex(toks, E){
+  E = E || S;
   const words = toks.filter(t => !t.br);
   if(!words.length) return -1;
-  switch(S.hitmode){
+  switch(E.hitmode){
     case 'none': return -1;
     case 'all':  return -2;                      // sentinel: colour everything
     case 'mark': return -3;                      // sentinel: honour the stars
@@ -1091,15 +1217,17 @@ function lineAt(t){
 const HAS_TRACKING = 'letterSpacing' in ctx;
 let measureCache = new Map(), measureKey = '';
 
-function setFace(size){
-  ctx.font = fontCss(S.font, size);
+function setFace(size, E){
+  E = E || S;
+  ctx.font = fontCss(E.font, size);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  if(HAS_TRACKING) ctx.letterSpacing = (S.track/100*size).toFixed(2) + 'px';
+  if(HAS_TRACKING) ctx.letterSpacing = (E.track/100*size).toFixed(2) + 'px';
 }
 
-function measure(word, size){
-  const key = S.font + '|' + size + '|' + S.track + '|' + word;
+function measure(word, size, E){
+  E = E || S;
+  const key = E.font + '|' + size + '|' + E.track + '|' + word;
   if(measureCache.has(key)) return measureCache.get(key);
   const w = ctx.measureText(word).width;
   if(measureCache.size > 4000) measureCache.clear();
@@ -1110,10 +1238,11 @@ function measure(word, size){
 /* Rows are laid out once per frame. It is cheap — a handful of measureText
    calls against a cache — and it means size, tracking and margin sliders move
    the type live instead of on the next card. */
-function layout(toks, size){
-  setFace(size);
-  const maxW = DW * (1 - S.margin/100*2);
-  const space = measure(' ', size) || size*.26;
+function layout(toks, size, E){
+  E = E || S;
+  setFace(size, E);
+  const maxW = DW * (1 - E.margin/100*2);
+  const space = measure(' ', size, E) || size*.26;
   const rows = [];
   let cur = [], curW = 0, order = 0;
 
@@ -1121,7 +1250,7 @@ function layout(toks, size){
 
   for(const tk of toks){
     if(tk.br){ push(); continue; }
-    const w = measure(tk.text, size);
+    const w = measure(tk.text, size, E);
     if(cur.length && curW + space + w > maxW) push();
     const gap = cur.length ? space : 0;
     cur.push({text:tk.text, mark:tk.mark, w, x:curW + gap, n:order++});
@@ -1133,20 +1262,21 @@ function layout(toks, size){
 
 /* If a card overflows the frame, shrink it rather than letting it bleed off
    the edge. Silent clipping is the one failure mode you cannot see coming. */
-function fitLayout(toks){
-  let size = S.size;
-  let L = layout(toks, size);
+function fitLayout(toks, E){
+  E = E || S;
+  let size = E.size;
+  let L = layout(toks, size, E);
   const maxH = DH * .78;
   let guard = 0;
   while(guard++ < 24){
-    const tall = L.rows.length * size * S.lh;
+    const tall = L.rows.length * size * E.lh;
     const wide = L.rows.some(r => r.w > L.maxW + 1);
     if(tall <= maxH && !wide) break;
     size *= .93;
-    L = layout(toks, size);
+    L = layout(toks, size, E);
   }
   L.size = size;
-  L.shrunk = size < S.size - .5;
+  L.shrunk = size < E.size - .5;
   return L;
 }
 
@@ -1324,7 +1454,8 @@ function drawGuides(){
 }
 
 /* ---------------------------------------------------------------- the type */
-function drawWord(word, cx, cy, size, tr, colour){
+function drawWord(word, cx, cy, size, tr, colour, E){
+  E = E || S;
   const boxW = word.w, boxH = size*.78;
   const ox = tr.ox === undefined ? .5 : tr.ox;
   const oy = tr.oy === undefined ? .5 : tr.oy;
@@ -1348,23 +1479,23 @@ function drawWord(word, cx, cy, size, tr, colour){
     ctx.clip();
   }
 
-  setFace(size);
+  setFace(size, E);
   let text = word.text;
   if(tr.ch !== undefined) text = text.slice(0, Math.max(1, Math.ceil(text.length*tr.ch)));
 
-  if(S.treat === 'plate' || S.treat === 'knock'){
+  if(E.treat === 'plate' || E.treat === 'knock'){
     const padX = size*.16, padY = size*.09;
-    const plateFill = S.treat === 'plate' ? colour : S.ctext;
+    const plateFill = E.treat === 'plate' ? colour : E.ctext;
     ctx.fillStyle = plateFill;
     const rx = cx - boxW/2 - padX, ry = cy - boxH/2 - padY;
     const rw = boxW + padX*2, rh = boxH + padY*2;
     ctx.beginPath();
     if(ctx.roundRect) ctx.roundRect(rx, ry, rw, rh, size*.06); else ctx.rect(rx, ry, rw, rh);
     ctx.fill();
-    ctx.fillStyle = S.treat === 'knock' ? S.cbg : readable(plateFill);
+    ctx.fillStyle = E.treat === 'knock' ? E.cbg : readable(plateFill);
     ctx.fillText(text, cx, cy);
   } else {
-    if(S.treat === 'shadow'){
+    if(E.treat === 'shadow'){
       ctx.shadowColor = 'rgba(0,0,0,.55)';
       ctx.shadowBlur = size*.20;
       ctx.shadowOffsetY = size*.055;
@@ -1377,7 +1508,7 @@ function drawWord(word, cx, cy, size, tr, colour){
       ctx.fillStyle = '#00E5FF'; ctx.fillText(text, cx + size*.06*tr.rgb, cy);
       ctx.restore();
     }
-    if(S.treat === 'outline'){
+    if(E.treat === 'outline'){
       ctx.lineJoin = 'round';
       ctx.lineWidth = size*.085;
       ctx.strokeStyle = '#0B0E1C';
@@ -1393,20 +1524,26 @@ function drawText(t){
   const i = lineAt(t);
   if(i < 0) return {index:-1};
   const line = state.lines[i];
-  const toks = tokens(line.text);
+  const E = styleFor(line);           // the deck's look, with this card's on top
+  const toks = tokens(line.text, E);
   if(!toks.length) return {index:i};
 
-  const L = fitLayout(toks);
+  const L = fitLayout(toks, E);
   const size = L.size;
-  const hit = hitIndex(toks);
+  const hit = hitIndex(toks, E);
 
-  const rowH = size*S.lh;
+  const rowH = size*E.lh;
   const totalH = L.rows.length*rowH;
-  const cyTop = DH*(S.posy/100) - totalH/2 + rowH/2;
+  const cyTop = DH*(E.posy/100) - totalH/2 + rowH/2;
 
-  const anim = ANIMS[S.anim] || ANIMS.snap;
-  const outStart = line.t + line.d - S.outdur;
-  const outMul = S.outdur > 0 ? 1 - ease.out(inv(outStart, line.t + line.d, t)) : 1;
+  const anim = ANIMS[E.anim] || ANIMS.snap;
+  /* The In duration slider is the in duration. It used to be bound to nothing
+     while the animation's own constant drove the timing, so the control moved
+     and the stage did not. Picking an animation now seeds the slider with that
+     animation's designed duration, and the slider is what renders. */
+  const inDur = Math.max(.02, E.indur || anim.dur);
+  const outStart = line.t + line.d - E.outdur;
+  const outMul = E.outdur > 0 ? 1 - ease.out(inv(outStart, line.t + line.d, t)) : 1;
 
   // A hit is the instant a word lands. It drives the frame shake, so it is
   // computed here rather than guessed from the audio envelope.
@@ -1414,14 +1551,14 @@ function drawText(t){
   const count = L.rows.reduce((a,r) => a + r.words.length, 0);
 
   ctx.save();
-  if(S.shake > 0){
+  if(E.shake > 0){
     for(let n=0;n<count;n++){
-      const on = line.t + n*(S.stagger/1000);
+      const on = line.t + n*(E.stagger/1000);
       const age = t - on;
       if(age >= 0 && age < .16) flash = Math.max(flash, 1 - age/.16);
     }
     if(flash > 0){
-      const a = S.shake/100 * flash * 22;
+      const a = E.shake/100 * flash * 22;
       ctx.translate((Math.random()-.5)*a, (Math.random()-.5)*a);
     }
   }
@@ -1429,19 +1566,19 @@ function drawText(t){
   L.rows.forEach((row, ri) => {
     const cy = cyTop + ri*rowH;
     let originX;
-    if(S.align === 'left')       originX = DW*(S.margin/100);
-    else if(S.align === 'right') originX = DW*(1 - S.margin/100) - row.w;
+    if(E.align === 'left')       originX = DW*(E.margin/100);
+    else if(E.align === 'right') originX = DW*(1 - E.margin/100) - row.w;
     else                         originX = (DW - row.w)/2;
 
     row.words.forEach(word => {
-      const on = line.t + word.n*(S.stagger/1000);
-      const p  = clamp((t - on)/anim.dur, 0, 1);
+      const on = line.t + word.n*(E.stagger/1000);
+      const p  = clamp((t - on)/inDur, 0, 1);
       if(t < on) return;
       const tr = Object.assign({}, anim.f(p, word.n));
       tr.o = (tr.o === undefined ? 1 : tr.o) * outMul;
       if(outMul < 1) tr.s = (tr.s === undefined ? 1 : tr.s) * lerp(.94, 1, outMul);
       const isHit = hit === -2 ? true : hit === -3 ? !!word.mark : (hit >= 0 && word.n === hit);
-      drawWord(word, originX + word.x + word.w/2, cy, size, tr, isHit ? S.chit : S.ctext);
+      drawWord(word, originX + word.x + word.w/2, cy, size, tr, isHit ? E.chit : E.ctext, E);
     });
   });
   ctx.restore();
@@ -2026,6 +2163,7 @@ function drawTimeline(now){
     tctx.beginPath();
     if(tctx.roundRect) tctx.roundRect(x, top, w, h, 2); else tctx.rect(x, top, w, h);
     tctx.fill();
+    if(l.ov){ tctx.fillStyle = '#4E6BFF'; tctx.fillRect(x, top, Math.min(w, 3), h); }
     if(w > 26){
       tctx.save();
       tctx.beginPath(); tctx.rect(x+3, top, w-6, h); tctx.clip();
@@ -2204,7 +2342,7 @@ function paintRows(){
   const frag = document.createDocumentFragment();
   state.lines.forEach((l,i) => {
     const row = document.createElement('div');
-    row.className = 'lrow' + (i === state.sel ? ' on' : '');
+    row.className = 'lrow' + (i === state.sel ? ' on' : '') + (l.ov ? ' ov' : '');
     const t = document.createElement('input'); t.value = l.t.toFixed(2); t.title = 'start';
     const d = document.createElement('input'); d.value = l.d.toFixed(2); d.title = 'duration';
     const x = document.createElement('input'); x.value = l.text; x.className = 'txt';
@@ -2227,6 +2365,42 @@ function paintRows(){
     frag.appendChild(row);
   });
   box.appendChild(frag);
+  paintOv();
+}
+
+/* ------------------------------------------------- per-card override panel
+   Empty means "as the deck". Every control writes straight into the card's
+   own ov object and reserialises, so the panel and the fourth field in the
+   script are two views of one thing and cannot disagree. */
+function ovSet(key, v){
+  const l = state.lines[state.sel];
+  if(!l) return;
+  pushHistory();
+  const ov = Object.assign({}, l.ov);
+  if(v === null || v === '' || v === undefined) delete ov[key];
+  else ov[key] = v;
+  l.ov = Object.keys(ov).length ? ov : null;
+  syncScript();
+}
+
+function paintOv(){
+  const l = state.lines[state.sel];
+  const ov = (l && l.ov) || {};
+  $('ovgrp').classList.toggle('off', !l);
+  $('ovwho').textContent = l ? '· card ' + (state.sel+1) : '· select a card first';
+
+  $('ov-anim').value  = ov.anim    || '';
+  $('ov-font').value  = ov.font    || '';
+  $('ov-align').value = ov.align   || '';
+  $('ov-treat').value = ov.treat   || '';
+  $('ov-hit').value   = ov.hitmode || '';
+  $('ov-size').value  = ov.size  !== undefined ? ov.size  : '';
+  $('ov-posy').value  = ov.posy  !== undefined ? ov.posy  : '';
+
+  $('ov-usecolor').classList.toggle('on', ov.ctext !== undefined);
+  $('ov-useaccent').classList.toggle('on', ov.chit !== undefined);
+  $('ov-color').value  = ov.ctext || S.ctext;
+  $('ov-accent').value = ov.chit  || S.chit;
 }
 
 function paintThumbs(){
@@ -2729,7 +2903,12 @@ function chipRow(host, entries, key){
     const c = document.createElement('span');
     c.className = 'chip' + (S[key] === k ? ' on hot' : '');
     c.textContent = entries[k].label;
-    c.onclick = () => { S[key] = k; chipRow(host, entries, key); measureCache.clear(); };
+    c.onclick = () => {
+      S[key] = k;
+      if(key === 'anim' && ANIMS[k]){ S.indur = ANIMS[k].dur; const el = $('indur'); el.value = S.indur; if(el._paint) el._paint(); }
+      chipRow(host, entries, key);
+      measureCache.clear();
+    };
     box.appendChild(c);
   });
 }
@@ -2973,6 +3152,37 @@ const nudge = dt => {
   state.lines.sort((a,b) => a.t - b.t);
   syncScript();
 };
+/* fill the two selects that mirror deck-wide lists */
+Object.entries(ANIMS).forEach(([k,v]) => {
+  const o = document.createElement('option'); o.value = k; o.textContent = v.label; $('ov-anim').appendChild(o);
+});
+FONTS.forEach(f => {
+  const o = document.createElement('option'); o.value = f.id; o.textContent = f.label; $('ov-font').appendChild(o);
+});
+
+$('ov-anim').onchange  = e => ovSet('anim',  e.target.value || null);
+$('ov-font').onchange  = e => { measureCache.clear(); ovSet('font', e.target.value || null); };
+$('ov-align').onchange = e => ovSet('align', e.target.value || null);
+$('ov-treat').onchange = e => ovSet('treat', e.target.value || null);
+$('ov-hit').onchange   = e => ovSet('hitmode', e.target.value || null);
+$('ov-size').onchange  = e => { measureCache.clear(); ovSet('size', e.target.value === '' ? null : clamp(parseFloat(e.target.value)||S.size, 16, 400)); };
+$('ov-posy').onchange  = e => ovSet('posy', e.target.value === '' ? null : clamp(parseFloat(e.target.value)||0, 0, 100));
+
+$('ov-usecolor').onclick  = () => ovSet('ctext', $('ov-usecolor').classList.contains('on')  ? null : $('ov-color').value);
+$('ov-useaccent').onclick = () => ovSet('chit',  $('ov-useaccent').classList.contains('on') ? null : $('ov-accent').value);
+$('ov-color').oninput  = e => { if($('ov-usecolor').classList.contains('on'))  ovSet('ctext', e.target.value); };
+$('ov-accent').oninput = e => { if($('ov-useaccent').classList.contains('on')) ovSet('chit',  e.target.value); };
+
+$('ovclear').onclick = () => {
+  const l = state.lines[state.sel];
+  if(!l || !l.ov){ DIAG.say('That card is already rendering with the deck look.', 's-warn'); return; }
+  pushHistory();
+  l.ov = null;
+  measureCache.clear();
+  syncScript();
+  DIAG.say('Card ' + (state.sel+1) + ' is back to the deck look.', 's-ok');
+};
+
 $('nudgeL').onclick = () => nudge(-0.05);
 $('nudgeR').onclick = () => nudge(0.05);
 $('dupline').onclick = () => {
