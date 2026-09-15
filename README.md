@@ -67,7 +67,43 @@ npx serve .                      # everything
 ```
 
 Chrome or Edge on desktop for the full set. Firefox records but cannot share
-tab audio. Safari has no `MediaRecorder`, so no export.
+tab audio. Safari records too, from 17.4 — as MP4 rather than WebM.
+
+## Phone and laptop
+
+The same file, the same code path, two very different shapes.
+
+On a laptop it is the two-column deck it always was: stage on the left,
+panel on the right, every keyboard shortcut live.
+
+On a phone the preview is **pinned** to the top of the screen and only the
+panel scrolls underneath it, because a lyric editor where moving a slider
+scrolls the picture out of sight is not an editor. The `⤢` button in the
+transport cycles the preview through three sizes — working, large, and out of
+the way entirely — since judging the picture and writing the script want
+opposite halves of the screen. Turn the phone sideways and it goes back to two
+columns.
+
+What changes with a touchscreen, keyed off `pointer: coarse` rather than the
+window width, so a touchscreen laptop gets it too:
+
+- every control is at least 44px, and every text field at least 16px — below
+  that, iOS Safari zooms the whole page when an input takes focus
+- timeline blocks carry an 11px grab margin, and the stretch handle on the
+  right edge grows to match, capped at a third of the block so short cards
+  stay draggable
+- **while `Tap to time` is armed, the picture itself is the tap pad** — your
+  thumb is already there, and it is the one target big enough to hit without
+  looking. `↶ Undo tap` and `Done` appear beside it, because `Z` and `Esc`
+  are not reachable
+- the diagnostics strip collapses to its one-line verdict and opens on demand
+- the preview renders at half resolution; the recorder forces full resolution
+  back on, so the export is unchanged
+
+Two things a phone genuinely cannot do, and the app says so rather than
+failing quietly: tab audio capture (`getDisplayMedia` is desktop-only in
+Chrome and Edge) and Spotify's redirect back to a `file://` page. Everything
+else — local file, mic, beat detection, recording — works.
 
 ## Script format
 
@@ -99,8 +135,10 @@ stretch it, `[` and `]` nudge 50 ms.
 
 ## Export
 
-WebM, VP9 + Opus, up to 16 Mbps, recorded in real time at full resolution
-regardless of the preview quality setting. Keep the tab in front — a
+WebM (VP9 + Opus) where the browser has it, MP4 (H.264 + AAC) on Safari and
+iOS — the app picks the best codec the browser admits to and names the file
+to match. Up to 16 Mbps, recorded in real time at full resolution regardless
+of the preview quality setting. Keep the tab in front — a
 backgrounded tab throttles `requestAnimationFrame` and the render stutters.
 
 ```sh
@@ -125,6 +163,10 @@ G          safe-area guides
 Ctrl+Z     undo
 Esc        stop tapping
 ```
+
+On touch, `?` in the title bar prints the equivalents: the stage is the tap
+pad, `↶ Undo tap` and `Done` stand in for `Z` and `Esc`, and `◀ −50ms` /
+`+50ms ▶` under Lines stand in for `[` and `]`.
 
 ## Saved edits
 

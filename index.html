@@ -14,13 +14,21 @@
     --hot:#FF4A17; --field:#1433C4; --ink:#0B0E1C;
     --ok:#39D98A; --warn:#FFC24A; --bad:#FF5A5A; --spot:#1DB954;
     --r:4px;
+    /* how tall the pinned preview is on a phone; the ⤢ button swaps it */
+    --stageh:34dvh;
+    --safe-b:env(safe-area-inset-bottom,0px);
+    --safe-l:env(safe-area-inset-left,0px);
+    --safe-r:env(safe-area-inset-right,0px);
   }
   *{box-sizing:border-box;margin:0;padding:0}
   html,body{height:100%}
+  html{-webkit-text-size-adjust:100%}
   body{
     background:var(--bg);color:var(--bone);
     font-family:'Archivo',system-ui,-apple-system,sans-serif;font-weight:500;font-size:13px;
     -webkit-font-smoothing:antialiased;
+    /* an accidental pull-to-refresh would throw away the whole in-memory edit */
+    overscroll-behavior:none;
   }
   ::selection{background:var(--hot);color:#14060a}
 
@@ -39,8 +47,12 @@
   canvas#stage{
     max-width:100%;max-height:100%;display:block;
     box-shadow:0 24px 70px rgba(0,0,0,.65);border-radius:3px;background:#000;
-    touch-action:none;
+    /* manipulation, not none: the stage is the tallest thing on a phone and
+       must not swallow the page's own scrolling. It only becomes a tap target
+       while tap-to-time is armed. */
+    touch-action:manipulation;
   }
+  body.tapping canvas#stage{cursor:pointer;outline:2px solid var(--hot);outline-offset:3px}
   .hud{
     position:absolute;top:22px;left:22px;right:22px;display:flex;gap:8px;
     pointer-events:none;font-size:10.5px;letter-spacing:.12em;font-weight:700;text-transform:uppercase;
@@ -64,6 +76,7 @@
     background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r);
     padding:9px 11px;cursor:pointer;text-align:center;white-space:nowrap;
     transition:background .12s,border-color .12s,color .12s;display:inline-flex;align-items:center;justify-content:center;gap:6px;
+    touch-action:manipulation;-webkit-tap-highlight-color:transparent;user-select:none;
   }
   button:hover:not(:disabled),.btn:hover{background:#212637;border-color:var(--line-2)}
   button:focus-visible,.btn:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--hot);outline-offset:1px}
@@ -75,7 +88,10 @@
   button:disabled{opacity:.35;cursor:not-allowed}
   button.wide{flex:1}
   button.sm{padding:6px 8px;font-size:11px}
-  input[type=file]{display:none}
+  button[hidden],.only-compact{display:none}
+  /* Not display:none — a hidden-that-way file input is not reliably
+     clickable through its <label> on iOS Safari. */
+  input[type=file]{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 
   select,input[type=text],input[type=number]{
     background:var(--panel-2);color:var(--bone);border:1px solid var(--line);border-radius:var(--r);
@@ -100,7 +116,7 @@
   }
   .tabs button:hover{background:var(--panel-2);color:var(--bone)}
   .tabs button.on{color:var(--bone);border-bottom-color:var(--hot);background:transparent}
-  .pane{flex:1;min-height:0;overflow-y:auto;padding:14px;display:none;flex-direction:column;gap:14px}
+  .pane{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:14px;display:none;flex-direction:column;gap:14px}
   .pane.on{display:flex}
   .pane::-webkit-scrollbar{width:9px}
   .pane::-webkit-scrollbar-thumb{background:var(--line);border-radius:9px}
@@ -124,13 +140,14 @@
   .chip{
     font-size:11px;font-weight:700;padding:6px 9px;border-radius:20px;cursor:pointer;
     background:var(--panel-2);border:1px solid var(--line);color:var(--dim);user-select:none;
+    touch-action:manipulation;-webkit-tap-highlight-color:transparent;
   }
   .chip:hover{color:var(--bone);border-color:var(--line-2)}
   .chip.on{background:var(--bone);border-color:var(--bone);color:var(--ink)}
   .chip.on.hot{background:var(--hot);border-color:var(--hot);color:#180702}
 
   /* ---------- line editor rows ---------- */
-  .lines{display:flex;flex-direction:column;gap:4px;max-height:340px;overflow-y:auto;padding-right:2px}
+  .lines{display:flex;flex-direction:column;gap:4px;max-height:340px;overflow-y:auto;overscroll-behavior:contain;padding-right:2px}
   .lrow{
     display:grid;grid-template-columns:52px 46px minmax(0,1fr) 26px;gap:5px;align-items:center;
     background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r);padding:5px;
@@ -154,8 +171,13 @@
   .diag{
     border-top:1px solid var(--line);background:var(--panel);flex:0 0 auto;
     font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:11px;line-height:1.7;
-    max-height:176px;overflow-y:auto;padding:9px 12px;
+    max-height:176px;overflow-y:auto;overscroll-behavior:contain;padding:9px 12px;
   }
+  .diaghead{
+    display:none;width:100%;justify-content:space-between;background:transparent;border:0;padding:4px 0 6px;
+    font-family:inherit;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);
+  }
+  .diaghead:hover{background:transparent;color:var(--bone)}
   .diag .d{display:flex;justify-content:space-between;gap:12px;color:var(--dim)}
   .diag .d span:last-child{text-align:right;color:var(--bone);word-break:break-word}
   .s-ok{color:var(--ok)!important}.s-warn{color:var(--warn)!important}.s-bad{color:var(--bad)!important}
@@ -165,14 +187,119 @@
   .bar .brand{font-family:'Anton',Impact,sans-serif;font-size:15px;letter-spacing:.02em;text-transform:uppercase;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .bar .brand i{color:var(--hot);font-style:normal}
 
-  @media (max-width:900px){
-    .app{grid-template-columns:1fr;height:auto;min-height:100dvh}
-    .left{border-right:0;border-bottom:1px solid var(--line)}
-    .stagewrap{padding:12px;min-height:56dvh}
-    .right{min-height:60dvh}
-    .pane{max-height:none}
+  /* ---------- anything driven by a finger ----------
+     Keyed off the pointer, not the width, so a touchscreen laptop gets the
+     bigger targets and a phone with a mouse paired to it does not. 44px is
+     the smallest thing a thumb hits reliably; 16px is the text size below
+     which iOS Safari zooms the whole page when an input takes focus.
+     This block comes first so the layout blocks underneath can override the
+     handful of sizes that have to bend on a small screen. */
+  @media (pointer:coarse){
+    button,.btn{padding:12px 12px;font-size:13px;min-height:44px}
+    button.sm{padding:10px 10px;font-size:12px;min-height:40px}
+    .bar button{min-width:44px}
+    .chip{display:inline-flex;align-items:center;min-height:38px;padding:9px 14px;font-size:12.5px}
+    select,input[type=text],input[type=number]{font-size:16px;padding:11px 9px;min-height:44px}
+    textarea{font-size:16px;min-height:190px}
+    input[type=color]{width:44px;height:44px}
+    input[type=range]{height:34px}
+    .tabs button{padding:15px 6px;font-size:11px;min-height:46px}
+    .tl{height:88px;cursor:default}
+    .lrow{grid-template-columns:64px 56px minmax(0,1fr) 38px;gap:6px;padding:6px}
+    .lrow input{font-size:16px;padding:8px 6px}
+    .lrow .go{padding:11px 0;font-size:14px}
+    .lines{max-height:none}
+    .thumb .x{font-size:13px;padding:7px 9px}
+    .drop{padding:22px 16px;font-size:12.5px}
+    .diag{font-size:12px}
+    /* :hover sticks after a tap on a touchscreen, so give it back to real pointers */
+    button:hover:not(:disabled),.btn:hover{background:var(--panel-2);border-color:var(--line)}
+    button.primary:hover:not(:disabled){background:var(--hot)}
+    button.armed:hover{background:var(--bone)}
+    .chip:hover{color:var(--dim);border-color:var(--line)}
+    .chip.on:hover{color:var(--ink)}
   }
-  @media (prefers-reduced-motion:reduce){ .hud .rec{animation:none} }
+
+  /* ---------- phone & tablet, upright ----------
+     One column, but the preview stays pinned at the top and only the panel
+     scrolls underneath it. A lyric editor where moving a slider scrolls the
+     picture out of sight is not an editor. */
+  @media (max-width:900px) and (min-height:500px){
+    .app{
+      grid-template-columns:1fr;
+      grid-template-rows:auto minmax(0,1fr);
+      height:100vh;height:100dvh;
+      padding-left:var(--safe-l);padding-right:var(--safe-r);
+    }
+    .left{border-right:0;border-bottom:1px solid var(--line);min-height:0}
+    .stagewrap{flex:0 0 auto;height:var(--stageh);padding:10px;transition:height .18s ease,padding .18s ease}
+    /* At the large size the preview is the job, so the diagnostics strip
+       stands down rather than leaving the panel a useless sliver. */
+    .app.tall{--stageh:56dvh}
+    .app.tall .diag{display:none}
+    .app.flat{--stageh:0px}
+    .app.flat .stagewrap{padding:0;overflow:hidden}
+    .right{min-height:0}
+    .hud{top:13px;left:13px;right:13px;gap:5px;flex-wrap:wrap;font-size:9px;letter-spacing:.08em}
+    .hud .tag{padding:3px 6px}
+    .transport{padding:8px 10px;gap:7px}
+    .tl{height:72px}
+    .only-compact{display:inline-flex}
+    .bar{padding:6px 11px}
+    .bar .brand{font-size:13px}
+    .thumbs{grid-template-columns:repeat(3,1fr)}
+  }
+
+  /* Short phones have no vertical budget to spare: every strip of chrome
+     comes out of the panel, which is the part you actually work in. */
+  @media (max-width:900px) and (min-height:500px) and (max-height:720px){
+    :root{--stageh:26dvh}
+    .tl{height:64px}
+    .transport{padding:7px 10px;gap:6px}
+  }
+
+  /* ---------- phone on its side ----------
+     Barely any height at all, so go back to two columns and let the stage
+     have the full column. */
+  @media (max-width:900px) and (max-height:499px){
+    .app{
+      grid-template-columns:minmax(0,1fr) minmax(232px,36vw);
+      height:100vh;height:100dvh;
+      padding-left:var(--safe-l);padding-right:var(--safe-r);
+    }
+    .stagewrap{padding:8px}
+    .hud{top:9px;left:9px;right:9px;gap:4px;flex-wrap:wrap;font-size:9px;letter-spacing:.06em}
+    .hud .tag{padding:2px 5px}
+    .transport{padding:6px 8px;gap:6px}
+    .tl{height:50px}
+    .trow{gap:6px}
+    .bar{padding:5px 9px}
+    .bar .brand{font-size:12px}
+    .tabs button{padding:10px 4px;min-height:38px}
+    .thumbs{grid-template-columns:repeat(3,1fr)}
+  }
+
+  /* ---------- the diagnostics strip on a small screen ----------
+     It is the last thing competing for height, so on anything narrow it
+     collapses to its one-line verdict and opens on demand. */
+  @media (max-width:900px){
+    /* Five tabs into a narrow column: the tracking is what stops "Export"
+       sliding off the end into the scroll overflow, where nobody looks. */
+    .tabs button{letter-spacing:.05em;padding-left:3px;padding-right:3px}
+    .diaghead{display:flex}
+    .diag{
+      flex:0 1 auto;max-height:34dvh;
+      padding-bottom:calc(9px + var(--safe-b));
+    }
+    .diag:not(.open){max-height:104px}
+    .diag:not(.open) #diagrows{display:none}
+    .diag:not(.open) .msg{margin-top:0;padding-top:0;border-top:0}
+  }
+
+  @media (prefers-reduced-motion:reduce){
+    .hud .rec{animation:none}
+    .stagewrap{transition:none}
+  }
 </style>
 </head>
 <body>
@@ -197,7 +324,10 @@
         <button id="play" class="primary fix" style="min-width:84px">▶ Play</button>
         <button id="stop" class="fix sm">■</button>
         <button id="tap" class="fix">Tap to time</button>
+        <button id="untapbtn" class="fix sm" hidden title="Take back the last tap (Z)">↶ Undo tap</button>
+        <button id="endtapbtn" class="fix sm" hidden title="Stop tapping (Esc)">Done</button>
         <button id="mark" class="fix sm" title="Set in / out points to the visible line">In/Out</button>
+        <button id="bigger" class="fix sm only-compact" title="Cycle the preview between working size, large, and out of the way">⤢ Bigger</button>
         <span class="clock" id="clock"><b>0:00.00</b> / 0:00.00</span>
       </div>
     </div>
@@ -287,7 +417,7 @@
       <div class="grp">
         <h4>Plates</h4>
         <label class="drop" id="drop" for="imgin">
-          Drop images or a video clip here<br><span style="opacity:.6">or click to browse — jpg, png, webp, gif, mp4, webm</span>
+          Tap to pick images or a video clip<br><span style="opacity:.6">or drop them here on a desktop — jpg, png, webp, gif, mp4, webm</span>
         </label>
         <input type="file" id="imgin" accept="image/*,video/mp4,video/webm,video/quicktime" multiple>
         <div class="thumbs" id="thumbs"></div>
@@ -531,6 +661,8 @@
 
     <!-- ---------------- diagnostics ---------------- -->
     <div class="diag" id="diag">
+      <button class="diaghead" id="diagtoggle" aria-expanded="false" aria-controls="diagrows">Diagnostics <span id="diagcaret">▸</span></button>
+      <div id="diagrows">
       <div class="d"><span>clock</span><span id="d-clock" class="s-warn">free running</span></div>
       <div class="d"><span>audio in</span><span id="d-audio" class="s-warn">none</span></div>
       <div class="d"><span>spotify</span><span id="d-spot" class="s-warn">not connected</span></div>
@@ -541,6 +673,7 @@
       <div class="d"><span>fonts</span><span id="d-font" class="s-warn">loading</span></div>
       <div class="d"><span>canvas</span><span id="d-taint" class="s-ok">clean</span></div>
       <div class="d"><span>recorder</span><span id="d-rec">—</span></div>
+      </div>
       <span class="msg" id="d-msg">Paste lyrics under Lines. Everything renders to canvas, so what you see is exactly what records.</span>
     </div>
   </div>
@@ -558,6 +691,15 @@
    can be re-rendered off-clock for export, and MediaRecorder can capture the
    real thing instead of a screen grab.
    ========================================================================= */
+
+/* ------------------------------------------------------------- platform
+   Two axes, deliberately kept apart: COARSE is about the input device and
+   decides how big the targets are; NARROW is about the viewport and decides
+   the layout. A touchscreen laptop is coarse but not narrow; a phone with a
+   trackpad paired is narrow but not coarse. */
+const mq = q => (window.matchMedia ? window.matchMedia(q) : {matches:false, addEventListener(){}} );
+const COARSE = mq('(pointer:coarse)').matches;
+const NARROW = mq('(max-width:900px)').matches;
 
 const $  = id => document.getElementById(id);
 const $$ = sel => Array.from(document.querySelectorAll(sel));
@@ -1277,6 +1419,16 @@ function wireFile(){
   }
 }
 
+/* Safari — desktop and iOS alike — starts every AudioContext suspended and
+   only lets a user gesture resume it. transport.play() handles the file path;
+   this catches everything else, so the meter and the beat pulse come alive on
+   the first touch rather than staying dead until something is played. */
+function unlockAudio(){
+  if(AUD.ctx && AUD.ctx.state === 'suspended') AUD.ctx.resume().catch(() => {});
+}
+['pointerdown','touchend','keydown'].forEach(k =>
+  addEventListener(k, unlockAudio, {passive:true}));
+
 function readLevel(){
   if(!AUD.analyser) return;
   AUD.analyser.getByteFrequencyData(AUD.data);
@@ -1312,6 +1464,12 @@ async function captureTab(){
 }
 
 async function captureMic(){
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    DIAG.say(window.isSecureContext === false
+      ? 'The microphone needs a secure context. Open this page over https, or on localhost — a plain http:// address will not do.'
+      : 'This browser exposes no microphone API.', 's-bad');
+    return;
+  }
   try{
     const stream = await navigator.mediaDevices.getUserMedia({
       audio:{echoCancellation:false, noiseSuppression:false, autoGainControl:false}
@@ -1748,13 +1906,19 @@ function drawTimeline(now){
 }
 
 let drag = null;
-function tlHit(x, y){
+/* slop widens both the block and its stretch handle for a finger. The handle
+   is never allowed to eat more than a third of a block, or short cards would
+   become impossible to move. */
+function tlHit(x, y, slop){
   const top = TH*.44 + 5;
-  if(y < top) return null;
+  if(y < top - slop) return null;
   for(let i=state.lines.length-1;i>=0;i--){
     const l = state.lines[i];
     const x0 = t2x(l.t), x1 = t2x(l.t + l.d);
-    if(x >= x0-2 && x <= x1+2) return {i, edge:(x > x1-7)};
+    if(x >= x0-slop && x <= x1+slop){
+      const edgeW = Math.min(7 + slop*2, (x1-x0)/3);
+      return {i, edge:(x > x1 - edgeW)};
+    }
   }
   return null;
 }
@@ -1762,8 +1926,8 @@ function tlHit(x, y){
 tlWrap.addEventListener('pointerdown', e => {
   const r = tlWrap.getBoundingClientRect();
   const x = e.clientX - r.left, y = e.clientY - r.top;
-  const hit = tlHit(x, y);
-  tlWrap.setPointerCapture(e.pointerId);
+  const hit = tlHit(x, y, e.pointerType === 'mouse' ? 2 : 11);
+  try{ tlWrap.setPointerCapture(e.pointerId); }catch(err){}
   if(hit){
     state.sel = hit.i;
     pushHistory();
@@ -1880,10 +2044,16 @@ function paintThumbs(){
 
 /* ------------------------------------------------------------ tap to time */
 const TAP = {on:false, i:0, stack:[]};
+function paintTapUi(){
+  $('tap').classList.toggle('armed', TAP.on);
+  $('untapbtn').hidden = !TAP.on;
+  $('endtapbtn').hidden = !TAP.on;
+  document.body.classList.toggle('tapping', TAP.on);
+}
 function endTap(msg){
   TAP.on = false;
-  $('tap').classList.remove('armed');
   $('tap').textContent = 'Tap to time';
+  paintTapUi();
   if(msg) DIAG.say(msg, 's-ok');
 }
 function doTap(){
@@ -1892,9 +2062,11 @@ function doTap(){
 
   if(!TAP.on){
     TAP.on = true; TAP.i = 0; TAP.stack = [];
-    $('tap').classList.add('armed');
     $('tap').textContent = 'Tap — card 1';
-    DIAG.say('Armed. Start playback, then tap once as each card should land. Press Z to take back the last tap, Escape to stop.', 's-warn');
+    paintTapUi();
+    DIAG.say(COARSE
+      ? 'Armed. Start playback, then tap the picture — or this button — once as each card should land. Undo tap takes the last one back, Done stops.'
+      : 'Armed. Start playback, then tap once as each card should land. Press Z to take back the last tap, Escape to stop.', 's-warn');
     return;
   }
 
@@ -2027,16 +2199,25 @@ function setRatio(key){
   $('h-ratio').innerHTML = key + ' · <b>' + w + '×' + h + '</b>';
 }
 
+/* WebM first because VP9 is the better encoder and every desktop browser that
+   records has it. Safari — which is to say every browser on an iPhone — has no
+   WebM muxer at all and records fragmented MP4 instead, so the H.264 rungs
+   below are what make the export work on a phone. */
 function pickMime(){
   const want = [
     'video/webm;codecs=vp9,opus',
     'video/webm;codecs=vp8,opus',
     'video/webm;codecs=vp9',
-    'video/webm'
+    'video/webm',
+    'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+    'video/mp4;codecs=avc1,mp4a.40.2',
+    'video/mp4;codecs=avc1',
+    'video/mp4'
   ];
   for(const m of want) if(window.MediaRecorder && MediaRecorder.isTypeSupported(m)) return m;
   return '';
 }
+const extFor = mime => /mp4/.test(mime) ? '.mp4' : '.webm';
 
 let recorder = null, recChunks = [], recStop = null;
 
@@ -2045,9 +2226,10 @@ function startRecord(){
     DIAG.say('Cannot record: the canvas is tainted by a cross-origin image, so the browser refuses to hand over its pixels. Remove the remote artwork plate and use a local copy.', 's-bad');
     return;
   }
-  if(!window.MediaRecorder){ DIAG.say('This browser has no MediaRecorder. Chrome, Edge or Firefox on desktop can record; iOS Safari cannot.', 's-bad'); return; }
+  if(!window.MediaRecorder){ DIAG.say('This browser has no MediaRecorder, so it cannot record. Chrome, Edge and Firefox can, and so can Safari 17.4 and later — including iOS. Everything else here still works; use Save this frame for stills.', 's-bad'); return; }
   const mime = pickMime();
-  if(!mime){ DIAG.say('No WebM encoder available in this browser.', 's-bad'); return; }
+  if(!mime){ DIAG.say('MediaRecorder is here but refused every codec — no WebM and no MP4. Stills still export.', 's-bad'); return; }
+  if(!canvas.captureStream){ DIAG.say('This browser will not hand over a stream from a canvas, so there is nothing to record. Save this frame still works.', 's-bad'); return; }
 
   const from = state.inPt, to = state.outPt !== null ? state.outPt : duration();
   if(to - from < .2){ DIAG.say('The in and out points are on top of each other. Widen the range or press Whole.', 's-bad'); return; }
@@ -2073,7 +2255,7 @@ function startRecord(){
   recorder.ondataavailable = e => { if(e.data && e.data.size) recChunks.push(e.data); };
   recorder.onstop = () => {
     const blob = new Blob(recChunks, {type:mime});
-    const name = ($('pname').value.trim() || 'kinetic-edit').replace(/[^\w\- ]+/g,'').trim().replace(/\s+/g,'-') + '.webm';
+    const name = ($('pname').value.trim() || 'kinetic-edit').replace(/[^\w\- ]+/g,'').trim().replace(/\s+/g,'-') + extFor(mime);
     download(blob, name);
     DIAG.set('d-rec', (blob.size/1048576).toFixed(1) + ' MB', 's-ok');
     DIAG.say('Rendered ' + (to-from).toFixed(1) + 's to ' + name + ' — ' + (blob.size/1048576).toFixed(1) + ' MB, ' + mime.split(';')[0] + '.', 's-ok');
@@ -2223,6 +2405,7 @@ function syncControls(){
   $$('#treats .chip').forEach(c => c.classList.toggle('on', c.dataset.t === S.treat));
   $('guidechip').classList.toggle('on', !!S.guides);
   $('qualchip').classList.toggle('on', S.quality >= 1);
+  $('qualchip').textContent = S.quality >= 1 ? 'Full-res preview' : 'Fast preview';
   onLookChange('bgmode');
 }
 
@@ -2302,6 +2485,17 @@ $('treats').addEventListener('click', e => {
 $('play').onclick = () => transport.toggle();
 $('stop').onclick = () => { transport.pause(); transport.seek(state.inPt); };
 $('tap').onclick  = doTap;
+$('untapbtn').onclick  = untap;
+$('endtapbtn').onclick = () => endTap('Tap mode off.');
+
+/* While tap mode is armed the picture itself is the tap pad. On a phone that
+   is the difference between timing a track and not: the thumb is already over
+   the stage, and it is the one target big enough to hit without looking. */
+$('stagewrap').addEventListener('pointerdown', e => {
+  if(!TAP.on) return;
+  e.preventDefault();
+  doTap();
+});
 $('mark').onclick = () => {
   const i = lineAt(transport.time);
   if(i < 0){ DIAG.say('No card under the playhead to bracket.', 's-warn'); return; }
@@ -2468,16 +2662,41 @@ $('pdel').onclick  = () => { const k = $('pslots').value; if(!k) return; const p
 $('pexport').onclick = () => download(new Blob([JSON.stringify(projectBlob(),null,2)],{type:'application/json'}), ($('pname').value.trim()||'kinetic') + '.json');
 $('pimport').addEventListener('change', async e => { const f = e.target.files[0]; if(!f) return; try{ loadBlob(JSON.parse(await f.text())); }catch(err){ DIAG.say('That JSON would not parse: ' + err.message, 's-bad'); } });
 
+/* Three sizes, because a phone has one screen and the two jobs want opposite
+   things from it: judging the picture wants the picture big, and writing the
+   script wants the panel big. Each label names the state the next tap lands on. */
+const PREVIEW = ['', 'tall', 'flat'];
+const PREVIEW_LABEL = {'':'⤢ Bigger', 'tall':'▾ Hide', 'flat':'▴ Show'};
+let previewAt = 0;
+$('bigger').onclick = () => {
+  const app = document.querySelector('.app');
+  previewAt = (previewAt + 1) % PREVIEW.length;
+  app.classList.remove('tall','flat');
+  if(PREVIEW[previewAt]) app.classList.add(PREVIEW[previewAt]);
+  $('bigger').textContent = PREVIEW_LABEL[PREVIEW[previewAt]];
+  setTimeout(sizeTimeline, 200);
+};
+
+$('diagtoggle').onclick = () => {
+  const open = $('diag').classList.toggle('open');
+  $('diagtoggle').setAttribute('aria-expanded', String(open));
+  $('diagcaret').textContent = open ? '▾' : '▸';
+};
+
 $('undo').onclick = undo;
-$('help').onclick = () => DIAG.say(
-  'Space play/pause · ←/→ seek 1s (Shift 5s) · ,/. step one frame\n' +
-  'T arm or fire a tap · Z take back the last tap · Esc stop tapping\n' +
-  '[ / ] nudge the selected card 50ms · G safe guides · Ctrl+Z undo\n' +
-  'Click a timeline block to select and seek; drag it to move, drag its right edge to stretch.');
+$('help').onclick = () => DIAG.say(COARSE
+  ? 'Touch: Tap to time arms the timer — then tap the picture once per card.\n' +
+    'Undo tap takes the last one back, Done stops. ⤢ grows or shrinks the preview.\n' +
+    'Drag a timeline block to move it, drag its right edge to stretch it.\n' +
+    'Under Lines, ◀ −50ms and +50ms ▶ nudge the selected card.'
+  : 'Space play/pause · ←/→ seek 1s (Shift 5s) · ,/. step one frame\n' +
+    'T arm or fire a tap · Z take back the last tap · Esc stop tapping\n' +
+    '[ / ] nudge the selected card 50ms · G safe guides · Ctrl+Z undo\n' +
+    'Click a timeline block to select and seek; drag it to move, drag its right edge to stretch.');
 
 /* ---- keyboard ---- */
 addEventListener('keydown', e => {
-  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test((document.activeElement || {}).tagName || '');
   if(typing && e.key !== 'Escape') return;
   const big = e.shiftKey ? 5 : 1;
   switch(e.key){
@@ -2498,6 +2717,32 @@ addEventListener('keydown', e => {
 /* ================================================================== init */
 FONTS.forEach(f => { const o = document.createElement('option'); o.value = f.id; o.textContent = f.label; $('font').appendChild(o); });
 S.clocksrc = 'auto';
+
+/* ---- what this device can actually do, said out loud rather than found out
+        halfway through an edit ---- */
+if(!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia){
+  $('captab').disabled = true;
+  $('captab').title = 'Tab audio sharing exists only in Chrome and Edge on a desktop.';
+}
+if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+  $('capmic').disabled = true;
+  $('capmic').title = 'No microphone API here — a secure origin (https or localhost) is required.';
+}
+(() => {
+  const m = window.MediaRecorder ? pickMime() : '';
+  DIAG.set('d-rec', m ? m.split(';')[0].replace('video/','') + ' ready' : 'unavailable', m ? '' : 's-bad');
+})();
+
+/* A phone repainting 1080×1920 every frame spends its whole budget on the
+   preview and drops the playback it is meant to be timed against. Half-res
+   preview costs nothing that matters — the recorder forces full resolution
+   back on regardless (see startRecord). */
+if(COARSE && NARROW) S.quality = .55;
+
+/* Rotating a phone changes every dimension the timeline canvas was sized
+   against, and orientationchange fires before the new metrics land. */
+addEventListener('orientationchange', () => setTimeout(sizeTimeline, 220));
+if(window.visualViewport) visualViewport.addEventListener('resize', () => sizeTimeline());
 $('spuri').textContent = location.protocol === 'file:' ? 'unavailable on file:// — serve the folder over http first' : SP.redirectUri;
 
 $('script').value =
@@ -2536,6 +2781,10 @@ if(document.fonts && document.fonts.ready){
   DIAG.set('d-font','unknown','s-warn');
 }
 if(!HAS_TRACKING) DIAG.set('d-font', 'no canvas tracking', 's-warn');
+
+if(COARSE){
+  DIAG.say('Touch: ⤢ grows the preview. Paste lyrics under Lines, then arm Tap to time and tap the picture once per card.', '');
+}
 
 requestAnimationFrame(frame);
 </script>
