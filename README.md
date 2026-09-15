@@ -186,8 +186,19 @@ pad, `↶ Undo tap` and `Done` stand in for `Z` and `Esc`, and `◀ −50ms` /
 
 ## Saved edits
 
-Look and timings go to `localStorage`; media does not. Export a `.json` to move
-an edit between machines, then re-attach the track and the plates.
+Look and timings go to `localStorage`. The plates and the track go to
+**IndexedDB** beside them, so loading a saved edit brings its media back with
+it instead of asking you to re-attach everything — `localStorage` holds strings
+and about five megabytes of them, which is why it never could.
+
+The project record keeps ids, not bytes. A vault row that nothing points at any
+more — a deleted project, a discarded autosave — is swept on the next boot, and
+the `stored` line in the diagnostics panel says how many files are down there
+and how close to the browser's quota they are.
+
+Export a `.json` to move an edit between machines. That carries the edit but not
+the bytes, so re-attach the media on the other side; if a plate is missing when
+an edit loads, the panel names the file rather than leaving a silent gap.
 
 ### Autosave
 

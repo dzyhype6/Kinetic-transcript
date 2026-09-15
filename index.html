@@ -670,7 +670,7 @@
           <label class="btn wide" for="pimport">Import .json</label>
           <input type="file" id="pimport" accept=".json,application/json">
         </div>
-        <p class="hint">Saved edits live in this browser only, and they hold the look and the timings — not the media. Images and the track are re-attached each session.</p>
+        <p class="hint">Saved edits live in this browser only. The look and the timings go to <code>localStorage</code>; the plates and the track go to IndexedDB alongside them, so loading an edit brings its media back too. An exported <code>.json</code> carries the edit but not the bytes — moving it to another machine means re-attaching the media there.</p>
       </div>
     </div>
 
@@ -685,6 +685,7 @@
       <div class="d"><span>cards</span><span id="d-lines">0</span></div>
       <div class="d"><span>timed</span><span id="d-timed">no</span></div>
       <div class="d"><span>plates</span><span id="d-media">0</span></div>
+      <div class="d"><span>stored</span><span id="d-store">—</span></div>
       <div class="d"><span>fonts</span><span id="d-font" class="s-warn">loading</span></div>
       <div class="d"><span>canvas</span><span id="d-taint" class="s-ok">clean</span></div>
       <div class="d"><span>recorder</span><span id="d-rec">—</span></div>
@@ -845,6 +846,7 @@ const state = {
   bpm: 0,
   peaks: null,        // Float32Array pairs for the waveform
   inPt: 0, outPt: null,
+  trackRef: null,    // {id,name} of the track's row in the vault
   snap: false, grid: false,
   recording: false,
   tainted: false,
@@ -855,28 +857,107 @@ const canvas = $('stage');
 const ctx = canvas.getContext('2d', {alpha:false});
 let DW = 1080, DH = 1920;   // design units — every draw call speaks these
 
+/* ---------------------------------------------------------------- vault
+   localStorage holds strings and about five megabytes of them, which is why
+   a saved edit has always dropped its media and asked you to re-attach it.
+   IndexedDB holds Blobs and orders of magnitude more, so the files go here
+   and the project blob keeps only their ids. Every call resolves rather than
+   rejects: a browser in private mode, or with storage switched off, should
+   lose persistence and nothing else. */
+const VAULT = {
+  name:'kinetic', store:'blobs', db:null, dead:false,
+
+  open(){
+    if(this.db) return Promise.resolve(this.db);
+    if(this.dead || !window.indexedDB) return Promise.resolve(null);
+    return new Promise(res => {
+      let rq;
+      try{ rq = indexedDB.open(this.name, 1); }catch(e){ this.dead = true; return res(null); }
+      rq.onupgradeneeded = () => {
+        if(!rq.result.objectStoreNames.contains(this.store)) rq.result.createObjectStore(this.store, {keyPath:'id'});
+      };
+      rq.onsuccess = () => { this.db = rq.result; res(this.db); };
+      rq.onerror   = () => { this.dead = true; res(null); };
+      rq.onblocked = () => res(null);
+    });
+  },
+
+  async tx(mode, fn){
+    const db = await this.open();
+    if(!db) return null;
+    return new Promise(res => {
+      let t;
+      try{ t = db.transaction(this.store, mode); }catch(e){ return res(null); }
+      const rq = fn(t.objectStore(this.store));
+      t.onabort = t.onerror = () => res(null);
+      if(rq) rq.onsuccess = () => res(rq.result);
+      else t.oncomplete = () => res(true);
+    });
+  },
+
+  put(rec){ return this.tx('readwrite', st => st.put(rec)); },
+  get(id){ return this.tx('readonly',  st => st.get(id)); },
+  del(id){ return this.tx('readwrite', st => st.delete(id)); },
+  keys(){  return this.tx('readonly',  st => st.getAllKeys()).then(k => k || []); }
+};
+
+let vaultSeq = 0;
+const vaultId = p => p + '_' + Date.now().toString(36) + '_' + (vaultSeq++).toString(36);
+
 /* ================================================================== media
    A plate is one image or one video clip. They are kept as decoded elements,
    never as data URLs, so a twelve-image edit costs twelve object URLs rather
-   than twelve megabytes of base64 sitting in the project blob. */
-const media = [];   // {kind:'img'|'vid', el, name, url, w, h}
+   than twelve megabytes of base64 sitting in the project blob. The bytes
+   themselves go to the vault above, keyed by id, so a saved edit can put them
+   back on the next boot. */
+const media = [];   // {kind:'img'|'vid', el, name, url, w, h, id}
 
-function addMedia(file){
+function addMedia(file, id){
+  const keep = !id;
+  id = id || vaultId('plate');
   return new Promise((resolve,reject) => {
     const url = URL.createObjectURL(file);
     const vid = /^video\//.test(file.type) || /\.(mp4|webm|mov)$/i.test(file.name);
     if(vid){
       const el = document.createElement('video');
       el.src = url; el.muted = true; el.loop = true; el.playsInline = true; el.preload = 'auto';
-      el.onloadedmetadata = () => { media.push({kind:'vid', el, name:file.name, url, w:el.videoWidth, h:el.videoHeight}); resolve(); };
+      el.onloadedmetadata = () => {
+        media.push({kind:'vid', el, name:file.name, url, w:el.videoWidth, h:el.videoHeight, id});
+        if(keep) VAULT.put({id, kind:'vid', name:file.name, blob:file});
+        resolve();
+      };
       el.onerror = () => reject(new Error('could not decode ' + file.name));
     } else {
       const el = new Image();
-      el.onload = () => { media.push({kind:'img', el, name:file.name, url, w:el.naturalWidth, h:el.naturalHeight}); resolve(); };
+      el.onload = () => {
+        media.push({kind:'img', el, name:file.name, url, w:el.naturalWidth, h:el.naturalHeight, id});
+        if(keep) VAULT.put({id, kind:'img', name:file.name, blob:file});
+        resolve();
+      };
       el.onerror = () => reject(new Error('could not decode ' + file.name));
       el.src = url;
     }
   });
+}
+
+/* Put the plates of a saved edit back. Anything the vault has lost — cleared
+   site data, a project moved to another machine as bare .json — is reported
+   by name rather than silently skipped, so the gap in the edit has a cause. */
+async function restorePlates(refs){
+  if(!Array.isArray(refs) || !refs.length) return 0;
+  let missing = [];
+  for(const r of refs){
+    if(!r || !r.id) continue;
+    const rec = await VAULT.get(r.id);
+    if(!rec || !rec.blob){ missing.push(r.name || r.id); continue; }
+    const name = rec.name || r.name || 'plate';
+    try{ await addMedia(new File([rec.blob], name, {type:rec.blob.type}), r.id); }
+    catch(e){ missing.push(name); }
+  }
+  paintThumbs(); refreshDiag();
+  if(missing.length) DIAG.say(missing.length + ' plate' + (missing.length>1?'s':'') + ' could not be found in this browser\'s storage: ' +
+    missing.slice(0,4).join(', ') + '. Drop the file' + (missing.length>1?'s':'') + ' back in.', 's-warn');
+  return refs.length - missing.length;
 }
 
 /* Remote artwork taints the canvas unless the host sends CORS headers, and a
@@ -900,7 +981,7 @@ function addRemoteImage(url, name){
 }
 
 function clearMedia(){
-  media.forEach(m => { try{ URL.revokeObjectURL(m.url); }catch(e){} });
+  media.forEach(m => { try{ URL.revokeObjectURL(m.url); }catch(e){} if(m.id) VAULT.del(m.id); });
   media.length = 0;
   state.tainted = false;
   DIAG.set('d-taint','clean','s-ok');
@@ -2157,7 +2238,11 @@ function paintThumbs(){
     el.src = m.url; if(m.kind === 'vid'){ el.muted = true; el.playsInline = true; }
     const n = document.createElement('span'); n.className = 'n'; n.textContent = i+1;
     const x = document.createElement('span'); x.className = 'x'; x.textContent = '✕';
-    x.onclick = () => { try{ URL.revokeObjectURL(m.url); }catch(e){} media.splice(i,1); paintThumbs(); refreshDiag(); };
+    x.onclick = () => {
+      try{ URL.revokeObjectURL(m.url); }catch(e){}
+      if(m.id) VAULT.del(m.id);
+      media.splice(i,1); paintThumbs(); refreshDiag(); markDirty();
+    };
     d.append(el,n,x);
     box.appendChild(d);
   });
@@ -2437,9 +2522,18 @@ const readProjects = () => { try{ return JSON.parse(localStorage.getItem(PKEY) |
 const writeProjects = p => { try{ localStorage.setItem(PKEY, JSON.stringify(p)); }catch(e){ DIAG.say('Browser storage is full or blocked — saved edits will not persist.', 's-warn'); } };
 
 function projectBlob(){
-  return {v:2, name:$('pname').value, look:Object.assign({}, S), script:$('script').value, bpm:state.bpm, beats:state.beats.slice(0,4000)};
+  return {
+    v:3, name:$('pname').value, look:Object.assign({}, S), script:$('script').value,
+    bpm:state.bpm, beats:state.beats.slice(0,4000),
+    /* ids, not bytes — the bytes are in the vault. A .json exported to another
+       machine therefore carries the edit but not the media, which is the same
+       deal as before and is now said out loud on the way back in. */
+    plates: media.filter(m => m.id).map(m => ({id:m.id, kind:m.kind, name:m.name})),
+    track: state.trackRef ? {id:state.trackRef.id, name:state.trackRef.name} : null
+  };
 }
-function loadBlob(j){
+
+async function loadBlob(j){
   if(!j || !j.look) { DIAG.say('That file is not a Kinetic Type project.', 's-bad'); return; }
   Object.assign(S, DEFAULTS, j.look);
   $('pname').value = j.name || '';
@@ -2448,7 +2542,37 @@ function loadBlob(j){
   syncControls();
   applyScript(true);
   setRatio(S.ratio);
-  DIAG.say('Loaded "' + (j.name || 'untitled') + '". Re-attach the track and the plates.', 's-ok');
+  DIAG.say('Loaded "' + (j.name || 'untitled') + '" — looking for its media…', 's-ok');
+
+  clearMediaRefs();
+  const got   = await restorePlates(j.plates);
+  const track = await restoreTrack(j.track);
+
+  const parts = [];
+  if(got) parts.push(got + ' plate' + (got>1?'s':''));
+  if(track) parts.push('the track');
+  DIAG.say('Loaded "' + (j.name || 'untitled') + '"' +
+    (parts.length ? ', with ' + parts.join(' and ') + ' back from storage.'
+                  : '. No media was stored with it — drop the plates and the track back in.'),
+    parts.length ? 's-ok' : 's-warn');
+}
+
+/* Drop the on-screen plates without deleting their bytes: a load is replacing
+   what is shown, not discarding what other saved edits still point at. */
+function clearMediaRefs(){
+  media.forEach(m => { try{ URL.revokeObjectURL(m.url); }catch(e){} });
+  media.length = 0;
+  state.tainted = false;
+  DIAG.set('d-taint','clean','s-ok');
+  paintThumbs();
+}
+
+async function restoreTrack(ref){
+  if(!ref || !ref.id) return false;
+  const rec = await VAULT.get(ref.id);
+  if(!rec || !rec.blob) return false;
+  attachTrack(new File([rec.blob], rec.name || ref.name || 'track', {type:rec.blob.type}), ref.id);
+  return true;
 }
 
 /* ------------------------------------------------------------- autosave
@@ -2507,6 +2631,45 @@ function offerRestore(){
     try{ localStorage.removeItem(AKEY); }catch(e){}
     $('restorebar').classList.remove('on');
   };
+}
+
+/* Bytes outlive the edits that pointed at them: delete a project, or discard
+   an autosave, and its plates would sit in the vault forever. So on every
+   boot, anything nothing references goes. Conservative by construction — it
+   only deletes what it can prove is unreachable. */
+async function sweepVault(){
+  const keys = await VAULT.keys();
+  if(!keys.length) return;
+  const live = new Set();
+  const note = j => {
+    if(!j) return;
+    (j.plates || []).forEach(p => p && p.id && live.add(p.id));
+    if(j.track && j.track.id) live.add(j.track.id);
+  };
+  Object.values(readProjects()).forEach(note);
+  note(readAuto());
+  media.forEach(m => m.id && live.add(m.id));
+  if(state.trackRef) live.add(state.trackRef.id);
+
+  let gone = 0;
+  for(const k of keys) if(!live.has(k)){ await VAULT.del(k); gone++; }
+  if(gone) DIAG.set('d-store', gone + ' orphan' + (gone>1?'s':'') + ' swept', '');
+  reportStorage();
+}
+
+async function reportStorage(){
+  const keys = await VAULT.keys();
+  if(!keys) return;
+  let line = keys.length + (keys.length === 1 ? ' file' : ' files');
+  if(navigator.storage && navigator.storage.estimate){
+    try{
+      const {usage, quota} = await navigator.storage.estimate();
+      if(usage != null) line += ' · ' + (usage/1048576).toFixed(1) + ' MB';
+      if(quota) line += ' of ' + (quota/1048576).toFixed(0) + ' MB';
+      if(quota && usage/quota > .85) return DIAG.set('d-store', line, 's-warn');
+    }catch(e){}
+  }
+  DIAG.set('d-store', line, keys.length ? 's-ok' : '');
 }
 
 function listProjects(){
@@ -2691,28 +2854,49 @@ $('setout').onclick   = () => { state.outPt = transport.time; paintRange(); };
 $('clrrange').onclick = () => { state.inPt = 0; state.outPt = null; paintRange(); };
 
 /* ---- local audio ---- */
-$('audiofile').addEventListener('change', async e => {
-  const f = e.target.files && e.target.files[0];
-  if(!f) return;
+/* One path in, whether the file came from the picker or back out of the
+   vault, so the two can never drift apart. */
+function attachTrack(f, id){
+  const keep = !id;
+  /* A restore has its own summary to print; letting loadedmetadata fire its
+     "Track ready" over the top of it loses the part that matters. */
+  restoringTrack = !keep;
+  id = id || vaultId('track');
   if(audio.src) URL.revokeObjectURL(audio.src);
   audio.src = URL.createObjectURL(f);
   audio.load();
   state.file = f;
+  state.trackRef = {id, name:f.name};
   AUD.kind = 'file';
+  if(keep) VAULT.put({id, kind:'track', name:f.name, blob:f});
   DIAG.set('d-audio', f.name.length > 26 ? f.name.slice(0,24) + '…' : f.name, 's-ok');
-  DIAG.say('Decoding ' + f.name + ' …');
   state.peaks = null; state.beats = []; state.bpm = 0;
   fitView();
   refreshDiag();
+  markDirty();
+}
+
+$('audiofile').addEventListener('change', e => {
+  const f = e.target.files && e.target.files[0];
+  if(!f) return;
+  attachTrack(f);
+  DIAG.say('Decoding ' + f.name + ' …');
 });
 $('dropaudio').onclick = () => {
   fitView();
   if(audio.src) URL.revokeObjectURL(audio.src);
   audio.removeAttribute('src'); audio.load();
-  state.file = null; state.peaks = null; state.beats = []; state.bpm = 0;
-  DIAG.set('d-audio','none','s-warn'); refreshDiag();
+  if(state.trackRef) VAULT.del(state.trackRef.id);
+  state.file = null; state.trackRef = null;
+  state.peaks = null; state.beats = []; state.bpm = 0;
+  DIAG.set('d-audio','none','s-warn'); refreshDiag(); markDirty();
 };
-audio.addEventListener('loadedmetadata', () => { refreshDiag(); DIAG.say('Track ready, ' + audio.duration.toFixed(1) + 's. Press play, then tap the cards in — or run Detect beats.', 's-ok'); });
+let restoringTrack = false;
+audio.addEventListener('loadedmetadata', () => {
+  refreshDiag();
+  if(restoringTrack){ restoringTrack = false; return; }
+  DIAG.say('Track ready, ' + audio.duration.toFixed(1) + 's. Press play, then tap the cards in — or run Detect beats.', 's-ok');
+});
 audio.addEventListener('ended', () => { transport.playing = false; syncPlayBtn(); });
 audio.addEventListener('error', () => {
   const codes = {1:'aborted', 2:'network error', 3:'decode failed', 4:'format not supported'};
@@ -2979,6 +3163,9 @@ if(COARSE){
 
 offerRestore();
 autoDirty = false;                 // the placeholder deck is not worth saving
+
+if(window.indexedDB) sweepVault();
+else DIAG.set('d-store', 'no IndexedDB — media will not persist', 's-warn');
 
 requestAnimationFrame(frame);
 </script>
