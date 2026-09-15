@@ -58,6 +58,7 @@
     pointer-events:none;font-size:10.5px;letter-spacing:.12em;font-weight:700;text-transform:uppercase;
   }
   .hud .tag{background:rgba(10,12,19,.82);border:1px solid var(--line);padding:4px 8px;border-radius:3px;color:var(--dim)}
+  .hud #h-track{max-width:min(46%,360px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-transform:none;letter-spacing:.04em}
   .hud .tag b{color:var(--bone);font-weight:700}
   .hud .rec{color:var(--bad);border-color:var(--bad);animation:blink 1s steps(2) infinite}
   @keyframes blink{50%{opacity:.35}}
@@ -326,6 +327,7 @@
         <span class="tag" id="h-ratio">9:16 · <b>1080×1920</b></span>
         <span class="tag" id="h-line">line <b>—</b></span>
         <span class="tag" id="h-fps">—</span>
+        <span class="tag" id="h-track" hidden></span>
         <span class="tag rec" id="h-rec" hidden>● REC</span>
       </div>
     </div>
@@ -629,6 +631,7 @@
           <button id="asrgo" class="wide" disabled>Transcribe the track</button>
           <button id="asrstop" class="fix sm" hidden>Stop</button>
         </div>
+        <p class="hint s-warn" id="asrwhy" hidden></p>
         <div class="fld"><span class="lab">Progress <b id="v-asr">—</b></span>
           <input type="range" id="asrbar" min="0" max="100" value="0" disabled></div>
         <p class="hint">Runs <b>on this machine</b> — the track is never uploaded. The model is fetched once and cached, so every run after the first works offline. Whisper was trained on speech, and sung vocals over a full mix are harder than speech: expect a draft to correct rather than a finished script, and expect the <b>timings</b> to be the better half of what you get. A vocal stem or an a cappella transcribes far better than a master. Cards are cut to the word count set under Reshape.</p>
@@ -2049,8 +2052,23 @@ function chunksToRows(chunks, opt){
   return rows;
 }
 
+/* A disabled control that will not say why is the worst thing in an app whose
+   whole premise is that a failure should name its own cause. This one sat
+   greyed out with the explanation locked behind the click it would not accept. */
+function paintAsrWhy(){
+  const why = $('asrwhy');
+  if(state.file || ASR.busy){ why.hidden = true; $('asrgo').title = ''; return; }
+  const msg = SP.token
+    ? 'Greyed out because Spotify is driving the clock, and Spotify\'s stream is encrypted — there is no audio here to read. Load the same track as a file under Audio → Load track, and this lights up.'
+    : 'Greyed out because there is no audio to read yet. Load a track under Audio → Load track. Tab capture and the mic are live streams and cannot be re-read, so a file is the one source this works from.';
+  why.textContent = msg;
+  $('asrgo').title = msg;
+  why.hidden = false;
+}
+
 function paintAsrUi(pct, note){
   $('asrgo').disabled   = ASR.busy || !state.file;
+  paintAsrWhy();
   $('asrstop').hidden   = !ASR.busy;
   $('asrlang').disabled = ASR.busy;
   $('asrmodel').disabled= ASR.busy;
@@ -2365,6 +2383,11 @@ const SP = {
     }
 
     DIAG.set('d-spot', (this.playing ? '▶ ' : '❚❚ ') + this.track.name + ' — ' + this.track.artist, 's-ok');
+    const tag = $('h-track');
+    tag.innerHTML = (this.playing ? '▶ ' : '❚❚ ') + '<b></b> — <span></span>';
+    tag.querySelector('b').textContent = this.track.name;
+    tag.querySelector('span').textContent = this.track.artist;
+    tag.hidden = false;
     if(fresh){
       $('pname').value = $('pname').value || (this.track.artist + ' — ' + this.track.name);
       if(autoArt && this.track.art) useArtwork();
@@ -2392,6 +2415,7 @@ const SP = {
     this.token = this.refresh = null; this.track = this.anchor = null; this.expires = 0;
     try{ localStorage.removeItem('kt.sp'); }catch(e){}
     DIAG.set('d-spot', why || 'signed out', 's-warn');
+    $('h-track').hidden = true;
     refreshDiag();
   }
 };
@@ -3564,7 +3588,8 @@ function refreshDiag(){
   DIAG.set('d-timed', state.timed ? 'yes' : 'provisional', state.timed ? 's-ok' : 's-warn');
   DIAG.set('d-media', media.length ? media.length + ' plate' + (media.length>1?'s':'') : 'none', media.length ? 's-ok' : '');
   $('detect').disabled = !state.file;
-  if(!ASR.busy) $('asrgo').disabled = !state.file;
+  if(!ASR.busy){ $('asrgo').disabled = !state.file; paintAsrWhy(); }
+  $('detect').title = state.file ? '' : 'Needs a local audio file — there is nothing to analyse in a live stream.';
   $('snapbeats').disabled = !state.beats.length;
   $('rec').disabled = !state.lines.length || state.tainted;
   $('bpmhint').textContent = state.bpm
