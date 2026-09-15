@@ -577,6 +577,62 @@
     <!-- ---------------- LINES ---------------- -->
     <div class="pane" data-pane="lines">
       <div class="grp">
+        <h4>Transcribe</h4>
+        <div class="r">
+          <select id="asrlang">
+            <option value="">Detect the language</option>
+            <optgroup label="Common here">
+              <option value="sw">Swahili / Kiswahili</option>
+              <option value="en">English</option>
+              <option value="ha">Hausa</option>
+              <option value="yo">Yoruba</option>
+              <option value="so">Somali</option>
+              <option value="am">Amharic</option>
+              <option value="sn">Shona</option>
+              <option value="af">Afrikaans</option>
+              <option value="mg">Malagasy</option>
+              <option value="ln">Lingala</option>
+              <option value="ar">Arabic</option>
+              <option value="fr">French</option>
+              <option value="pt">Portuguese</option>
+            </optgroup>
+            <optgroup label="Everything else">
+              <option value="es">Spanish</option><option value="de">German</option>
+              <option value="it">Italian</option><option value="nl">Dutch</option>
+              <option value="ru">Russian</option><option value="uk">Ukrainian</option>
+              <option value="pl">Polish</option><option value="tr">Turkish</option>
+              <option value="hi">Hindi</option><option value="ur">Urdu</option>
+              <option value="bn">Bengali</option><option value="ta">Tamil</option>
+              <option value="te">Telugu</option><option value="ml">Malayalam</option>
+              <option value="zh">Chinese</option><option value="ja">Japanese</option>
+              <option value="ko">Korean</option><option value="vi">Vietnamese</option>
+              <option value="th">Thai</option><option value="id">Indonesian</option>
+              <option value="ms">Malay</option><option value="tl">Tagalog</option>
+              <option value="fa">Persian</option><option value="he">Hebrew</option>
+              <option value="el">Greek</option><option value="ro">Romanian</option>
+              <option value="hu">Hungarian</option><option value="cs">Czech</option>
+              <option value="sv">Swedish</option><option value="da">Danish</option>
+              <option value="no">Norwegian</option><option value="fi">Finnish</option>
+            </optgroup>
+          </select>
+        </div>
+        <div class="r">
+          <select id="asrmodel">
+            <option value="onnx-community/whisper-base">Base — the usual choice, ~80 MB</option>
+            <option value="onnx-community/whisper-tiny">Tiny — fastest, roughest, ~40 MB</option>
+            <option value="onnx-community/whisper-small">Small — best words, slow, ~250 MB</option>
+          </select>
+        </div>
+        <div class="r">
+          <button id="asrgo" class="wide" disabled>Transcribe the track</button>
+          <button id="asrstop" class="fix sm" hidden>Stop</button>
+        </div>
+        <div class="fld"><span class="lab">Progress <b id="v-asr">—</b></span>
+          <input type="range" id="asrbar" min="0" max="100" value="0" disabled></div>
+        <p class="hint">Runs <b>on this machine</b> — the track is never uploaded. The model is fetched once and cached, so every run after the first works offline. Whisper was trained on speech, and sung vocals over a full mix are harder than speech: expect a draft to correct rather than a finished script, and expect the <b>timings</b> to be the better half of what you get. A vocal stem or an a cappella transcribes far better than a master. Cards are cut to the word count set under Reshape.</p>
+      </div>
+
+      <div class="grp">
         <h4>Script</h4>
         <textarea id="script" spellcheck="false" autocapitalize="off" autocorrect="off"></textarea>
         <p class="hint">One card per row. <code>start | duration | text</code>, or just the words and let the timing come later. <code>[Chorus]</code> and <code>(intro)</code> rows are dropped. Wrap a word in <code>*stars*</code> to hit it with the accent colour. <code>//</code> forces a line break inside a card.</p>
@@ -733,6 +789,7 @@
       <div class="d"><span>stored</span><span id="d-store">—</span></div>
       <div class="d"><span>fonts</span><span id="d-font" class="s-warn">loading</span></div>
       <div class="d"><span>canvas</span><span id="d-taint" class="s-ok">clean</span></div>
+      <div class="d"><span>transcribe</span><span id="d-asr">idle</span></div>
       <div class="d"><span>recorder</span><span id="d-rec">—</span></div>
       </div>
       <span class="msg" id="d-msg">Paste lyrics under Lines. Everything renders to canvas, so what you see is exactly what records.</span>
@@ -1802,6 +1859,237 @@ async function analyseBuffer(arrayBuf){
   return {beats, bpm:Math.round(bpm*10)/10, peaks, env, envRate:rate, duration:ab.duration};
 }
 
+/* ============================================================ transcription
+   Whisper, fetched once and run on this machine. Not a cloud API: somebody's
+   unreleased track should not have to leave their laptop to become a lyric
+   deck, and a browser tool that needs an API key is a browser tool nobody can
+   just open.
+
+   It is honest about what it is. Whisper was trained on speech, and sung
+   vocals over a full mix are a harder problem than speech — the lower the
+   resource language, the harder still. On a clean vocal it is very good; on a
+   dense master it gives you a draft to fix rather than a finished script. The
+   timings it returns are the real prize either way, because they land the
+   cards where the words are.
+
+   Audio is windowed here rather than handed over whole, which buys three
+   things: progress that means something, a Cancel that actually stops, and a
+   memory ceiling that a phone can live with. */
+const ASR = {
+  lib:null, pipe:null, model:null, busy:false, cancel:false,
+  CDN:'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.5',
+  WIN:30, OVERLAP:3          // seconds per window, and how much they share
+};
+
+/* Whisper wants 16 kHz mono Float32. decodeAudioData gives whatever the file
+   is, so downmix and resample; OfflineAudioContext does the resampling in C++
+   rather than us doing it badly in a loop. */
+async function decodeForAsr(file, onNote){
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if(!AC) throw new Error('this browser has no Web Audio, so nothing can be decoded');
+  const ac = new AC();
+  let buf;
+  try{
+    buf = await ac.decodeAudioData(await file.arrayBuffer());
+  }catch(e){
+    ac.close();
+    throw new Error('the browser could not decode ' + file.name + '. Try a wav, mp3 or m4a.');
+  }
+  ac.close();
+  if(onNote) onNote(buf.duration);
+
+  const RATE = 16000;
+  const frames = Math.max(1, Math.round(buf.duration*RATE));
+  const off = new OfflineAudioContext(1, frames, RATE);
+  const src = off.createBufferSource();
+  src.buffer = buf;
+  src.connect(off.destination);
+  src.start();
+  const out = await off.startRendering();
+  return {pcm: out.getChannelData(0), rate: RATE, duration: buf.duration};
+}
+
+/* Fetching ~80MB of model over a link the page has no control over is the one
+   step most likely to fail, so it says which step failed and why. */
+async function loadAsr(model, onProgress){
+  if(ASR.pipe && ASR.model === model) return ASR.pipe;
+  if(!ASR.lib){
+    try{
+      ASR.lib = await import(/* webpackIgnore: true */ ASR.CDN);
+    }catch(e){
+      throw new Error('could not load the speech library from jsDelivr. ' +
+        'Either this machine is offline, or the CDN is blocked here. Everything else in the app works without it.');
+    }
+  }
+  const { pipeline } = ASR.lib;
+  /* Inference is deliberately left on the main thread. Running it in a worker
+     would keep the page smooth, but it means the library spinning up a worker
+     off a CDN URL, and that is one more thing to fail on a locked-down network
+     for a benefit the windowing already mostly delivers — the loop yields
+     between windows, so the stage keeps painting and Stop stays live. */
+  const device = navigator.gpu ? 'webgpu' : 'wasm';
+  try{
+    ASR.pipe = await pipeline('automatic-speech-recognition', model, {
+      dtype: device === 'webgpu' ? 'fp32' : 'q8',
+      device,
+      progress_callback: p => {
+        if(!onProgress) return;
+        if(p.status === 'progress' && p.total) onProgress(p.file || '', p.loaded/p.total);
+        else if(p.status === 'ready') onProgress('', 1);
+      }
+    });
+  }catch(e){
+    ASR.pipe = null;
+    throw new Error('the model would not start on this device (' + device + '): ' + e.message);
+  }
+  ASR.model = model;
+  return ASR.pipe;
+}
+
+/* Whisper loops when it runs out of speech — an instrumental break comes back
+   as the same line four times. Three in a row is the model stuck, not the
+   song, so the repeats go. */
+function chunksToRows(chunks, opt){
+  opt = opt || {};
+  const perLine = clamp(opt.perLine || 6, 2, 14);
+  const cap = Number.isFinite(opt.duration) ? opt.duration : Infinity;
+  const rows = [];
+  let prev = '', runs = 0, cursor = 0;
+
+  for(const c of (chunks || [])){
+    const text = String((c && c.text) || '').replace(/\s+/g, ' ').trim();
+    if(!text) continue;
+
+    const norm = text.toLocaleLowerCase();
+    if(norm === prev){ if(++runs >= 2) continue; } else { prev = norm; runs = 0; }
+
+    const ts = (c && c.timestamp) || [];
+    let t0 = Number.isFinite(ts[0]) ? ts[0] : cursor;
+    let t1 = Number.isFinite(ts[1]) ? ts[1] : 0;
+    if(!(t1 > t0)) t1 = t0 + clamp(text.length*.07, .6, 4);
+    t0 = clamp(t0, 0, cap);
+    t1 = clamp(t1, t0 + .2, cap === Infinity ? t1 : cap);
+
+    // long chunks become several cards, sharing the window by character count
+    const words = text.split(' ').filter(Boolean);
+    const groups = [];
+    for(let i=0;i<words.length;i+=perLine) groups.push(words.slice(i, i+perLine));
+    const weights = groups.map(g => g.join(' ').length || 1);
+    const total = weights.reduce((a,w) => a+w, 0);
+
+    let at = t0;
+    groups.forEach((g, gi) => {
+      const d = Math.max(.25, (t1-t0) * (weights[gi]/total));
+      rows.push({t: +at.toFixed(2), d: +d.toFixed(2), text: g.join(' ')});
+      at += d;
+    });
+    cursor = at;
+  }
+
+  rows.sort((a,b) => a.t - b.t);
+  // a card that runs into the next one reads as a mistake, so trim the overlap
+  for(let i=0;i<rows.length-1;i++){
+    const room = rows[i+1].t - rows[i].t;
+    if(room > .2 && rows[i].d > room) rows[i].d = +(room - .02).toFixed(2);
+  }
+  return rows;
+}
+
+function paintAsrUi(pct, note){
+  $('asrgo').disabled   = ASR.busy || !state.file;
+  $('asrstop').hidden   = !ASR.busy;
+  $('asrlang').disabled = ASR.busy;
+  $('asrmodel').disabled= ASR.busy;
+  $('asrgo').textContent = ASR.busy ? 'Working…' : 'Transcribe the track';
+  if(pct !== undefined) $('asrbar').value = Math.round(clamp(pct,0,1)*100);
+  if(note !== undefined) $('v-asr').textContent = note;
+}
+
+async function runTranscribe(){
+  if(ASR.busy) return;
+  if(!state.file){
+    DIAG.say('Transcription reads the decoded track, so it needs a local file. Tab capture and Spotify are streams — there is nothing to decode. Load a file under Audio.', 's-bad');
+    return;
+  }
+  ASR.busy = true; ASR.cancel = false;
+  const model = $('asrmodel').value;
+  const lang  = $('asrlang').value;
+  paintAsrUi(0, 'decoding');
+  DIAG.set('d-asr', 'decoding', 's-warn');
+
+  try{
+    const {pcm, rate, duration} = await decodeForAsr(state.file);
+    if(ASR.cancel) throw {cancelled:true};
+
+    paintAsrUi(0, 'fetching model');
+    DIAG.set('d-asr', 'fetching model', 's-warn');
+    DIAG.say('Fetching ' + model.split('/').pop() + '. First run only — the browser caches it, and every run after this one is offline.', 's-warn');
+    const pipe = await loadAsr(model, (file, frac) => paintAsrUi(frac*.35, 'model ' + Math.round(frac*100) + '%'));
+    if(ASR.cancel) throw {cancelled:true};
+
+    DIAG.say('Listening to ' + duration.toFixed(0) + 's of audio' + (lang ? ' as ' + $('asrlang').selectedOptions[0].textContent : ', detecting the language') + '. Watch the bar; Stop ends it after the window it is on.', 's-warn');
+
+    const win = Math.round(ASR.WIN*rate), hop = Math.round((ASR.WIN - ASR.OVERLAP)*rate);
+    const opts = {return_timestamps:true, task:'transcribe'};
+    if(lang) opts.language = lang;
+
+    const all = [];
+    let covered = 0, windows = 0;
+    for(let start = 0; start < pcm.length; start += hop){
+      if(ASR.cancel) break;
+      const seg = pcm.subarray(start, Math.min(pcm.length, start + win));
+      if(seg.length < rate*.4) break;                  // a sliver of tail is not worth a pass
+      const offset = start/rate;
+
+      const out = await pipe(seg, opts);
+      windows++;
+
+      /* Windows overlap so a word split across a boundary is heard whole by
+         one of them. Keep the first hearing and drop the second. */
+      for(const c of (out.chunks || [{text:out.text, timestamp:[0, seg.length/rate]}])){
+        const ts = c.timestamp || [];
+        const a = (Number.isFinite(ts[0]) ? ts[0] : 0) + offset;
+        const b = Number.isFinite(ts[1]) ? ts[1] + offset : null;
+        if(a < covered - .05) continue;
+        all.push({text:c.text, timestamp:[a, b]});
+      }
+      covered = Math.max(covered, offset + (ASR.WIN - ASR.OVERLAP));
+      const done = Math.min(1, (start + win)/pcm.length);
+      paintAsrUi(.35 + done*.65, Math.round(done*100) + '%');
+      DIAG.set('d-asr', Math.round(done*100) + '% · ' + all.length + ' lines', 's-warn');
+      await new Promise(r => setTimeout(r, 0));        // let the stage paint between windows
+    }
+
+    const rows = chunksToRows(all, {perLine: clamp(parseInt($('perline').value)||6, 2, 14), duration});
+    if(!rows.length){
+      DIAG.say(ASR.cancel ? 'Stopped before anything came back.' :
+        'The model heard no words in that. On a dense master it often cannot pick vocals out of the mix — try the Small model, or run it on an a cappella or a vocal stem if you have one.', 's-warn');
+      DIAG.set('d-asr', 'nothing heard', 's-warn');
+    } else {
+      pushHistory();
+      $('script').value = rows.map(r => r.t.toFixed(2) + ' | ' + r.d.toFixed(2) + ' | ' + r.text).join('\n');
+      applyScript(true);
+      state.timed = true;
+      refreshDiag();
+      DIAG.set('d-asr', rows.length + ' cards', 's-ok');
+      DIAG.say(rows.length + ' cards from ' + windows + ' window' + (windows>1?'s':'') +
+        (ASR.cancel ? ' before you stopped it' : '') +
+        '. Read it against the track before you trust it — the timings are usually better than the words. Fix the text in the script box; nudge the timing on the timeline.', 's-ok');
+    }
+  }catch(e){
+    if(e && e.cancelled){
+      DIAG.say('Stopped.', 's-warn');
+      DIAG.set('d-asr', 'stopped', 's-warn');
+    } else {
+      DIAG.say('Transcription failed: ' + (e && e.message ? e.message : e), 's-bad');
+      DIAG.set('d-asr', 'failed', 's-bad');
+    }
+  }finally{
+    ASR.busy = false; ASR.cancel = false;
+    paintAsrUi(0, '—');
+  }
+}
+
 /* ================================================================ transport
    One clock, four possible masters. Everything downstream asks transport.time
    and never touches an <audio> element or a Spotify response directly. */
@@ -2865,6 +3153,7 @@ function refreshDiag(){
   DIAG.set('d-timed', state.timed ? 'yes' : 'provisional', state.timed ? 's-ok' : 's-warn');
   DIAG.set('d-media', media.length ? media.length + ' plate' + (media.length>1?'s':'') : 'none', media.length ? 's-ok' : '');
   $('detect').disabled = !state.file;
+  if(!ASR.busy) $('asrgo').disabled = !state.file;
   $('snapbeats').disabled = !state.beats.length;
   $('rec').disabled = !state.lines.length || state.tainted;
   $('bpmhint').textContent = state.bpm
@@ -3136,6 +3425,12 @@ $('gridchip').onclick = e => { state.grid = !state.grid; e.target.classList.togg
 let deb;
 $('script').addEventListener('input', () => { clearTimeout(deb); deb = setTimeout(() => applyScript(), 320); });
 $('script').addEventListener('focus', pushHistory, {once:false});
+$('asrgo').onclick   = runTranscribe;
+$('asrstop').onclick = () => {
+  ASR.cancel = true;
+  DIAG.say('Stopping after the window it is in the middle of — whatever it has heard so far is kept.', 's-warn');
+};
+
 $('split').onclick     = splitLines;
 $('retime').onclick    = spaceEvenly;
 $('fillgaps').onclick  = closeGaps;

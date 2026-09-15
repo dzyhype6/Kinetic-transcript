@@ -141,6 +141,42 @@ The seven most-used live in a panel under **Lines**, where empty means "as the
 deck". Cards carrying an override are marked in the list and striped blue on
 the timeline. The panel and the fourth field are two views of one thing.
 
+## Transcribing a track
+
+You do not have to type the words in. **Lines → Transcribe** runs Whisper over
+the loaded file and writes a timed script from it, in Swahili, English, or any
+of the ~99 languages Whisper knows — pick one, or let it detect.
+
+It runs **on this machine**. The model is fetched once from jsDelivr and cached
+by the browser; every run after the first works offline, and the audio is never
+uploaded anywhere. No API key, no account, no server — the same deal as the
+rest of the app.
+
+| Model | Size | Use it when |
+|---|---|---|
+| Tiny | ~40 MB | roughing out timings, or a slow machine |
+| Base | ~80 MB | the usual choice |
+| Small | ~250 MB | the words matter and you can wait |
+
+WebGPU is used where the browser has it and WASM everywhere else, which is the
+difference between a couple of minutes and rather more.
+
+**Be realistic about the words.** Whisper was trained on speech. Sung vocals
+over a full mix are a harder problem than speech, and harder again for a lower
+resource language — Swahili included. On a vocal stem or an a cappella it is
+very good. On a dense master it gives you a draft to correct, and it will
+sometimes loop a phrase through an instrumental break (repeats three deep are
+dropped on the way in).
+
+The **timings** are the better half of what you get either way, because they
+land the cards where the words actually are — which is the part that takes the
+longest by hand.
+
+Audio is fed through in 30 second windows with a 3 second overlap, so a word
+across a boundary is heard whole by one of them. That is also what makes the
+progress bar mean something and **Stop** stop: it ends after the window it is
+in and keeps everything heard so far.
+
 ## Timing a track
 
 1. Load the file, press play, hit **Tap to time**, tap once per card.
