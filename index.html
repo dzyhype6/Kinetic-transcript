@@ -183,6 +183,15 @@
   .s-ok{color:var(--ok)!important}.s-warn{color:var(--warn)!important}.s-bad{color:var(--bad)!important}
   .diag .msg{display:block;margin-top:6px;padding-top:6px;border-top:1px solid var(--line);color:var(--dim);white-space:pre-wrap}
 
+  .restore{
+    display:none;gap:8px;align-items:center;flex:0 0 auto;
+    padding:9px 12px;border-bottom:1px solid var(--line);
+    background:rgba(255,194,74,.08);border-left:2px solid var(--warn);
+  }
+  .restore.on{display:flex}
+  .restore span{flex:1;font-size:11.5px;color:var(--bone);line-height:1.5}
+  .restore span b{color:var(--warn);font-weight:700}
+
   .bar{display:flex;gap:8px;padding:9px 12px;border-bottom:1px solid var(--line);align-items:center;background:var(--panel);flex:0 0 auto}
   .bar .brand{font-family:'Anton',Impact,sans-serif;font-size:15px;letter-spacing:.02em;text-transform:uppercase;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .bar .brand i{color:var(--hot);font-style:normal}
@@ -339,6 +348,12 @@
       <span class="brand">KINETIC <i>TYPE</i></span>
       <button id="undo" class="sm fix" title="Undo (Ctrl+Z)">↺</button>
       <button id="help" class="sm fix" title="Keyboard shortcuts">?</button>
+    </div>
+
+    <div class="restore" id="restorebar">
+      <span>An unsaved edit from <b id="restorewhen">earlier</b> is still here.</span>
+      <button id="restoreyes" class="sm fix">Restore</button>
+      <button id="restoreno" class="sm fix">Discard</button>
     </div>
 
     <div class="tabs" id="tabs">
@@ -595,7 +610,7 @@
           <button id="dupline" class="sm wide">Duplicate</button>
           <button id="delline" class="sm wide">Delete</button>
         </div>
-        <p class="hint">Click a block on the timeline to select and seek. Drag it to move, drag its right edge to stretch. <code>[</code> and <code>]</code> nudge the selected card.</p>
+        <p class="hint">Click or tap a block on the timeline to select and seek. Drag it to move, drag its right edge to stretch. Pinch — or roll the wheel — to zoom into a section; double-tap to fit the whole track again. <code>[</code> and <code>]</code> nudge the selected card.</p>
       </div>
     </div>
 
@@ -1845,12 +1860,52 @@ function sizeTimeline(){
   tctx.setTransform(dpr,0,0,dpr,0,0);
 }
 
-const t2x = t => (t/Math.max(.01, duration()))*TW;
-const x2t = x => (x/TW)*duration();
+/* The timeline shows a window onto the track, not always the whole of it.
+   On a 370px phone a three minute song gives a 2.4s card four pixels — not
+   something you can select, let alone drag. span:null means "the whole
+   track", which is the state every desktop edit started in and still does. */
+const MINSPAN = 1.2;
+const view = {start:0, span:null};
+const viewSpan = () => Math.min(view.span || Infinity, Math.max(.01, duration()));
+
+const t2x = t => ((t - view.start)/viewSpan())*TW;
+const x2t = x => view.start + (x/TW)*viewSpan();
+
+function clampView(){
+  const dur = Math.max(.01, duration());
+  if(view.span === null || view.span >= dur){ view.span = null; view.start = 0; return; }
+  view.span  = clamp(view.span, MINSPAN, dur);
+  view.start = clamp(view.start, 0, dur - view.span);
+}
+
+/* Zoom about a point in time rather than about the centre, so whatever was
+   under the cursor or between the fingers stays there. */
+function zoomAt(t, factor){
+  const dur = Math.max(.01, duration());
+  const span0 = viewSpan();
+  const frac = clamp((t - view.start)/span0, 0, 1);
+  const span = clamp(span0*factor, MINSPAN, dur);
+  if(span >= dur){ view.span = null; view.start = 0; return; }
+  view.span = span;
+  view.start = t - frac*span;
+  clampView();
+}
+function fitView(){ view.span = null; view.start = 0; }
 
 function drawTimeline(now){
   if(!TW) return;
   const dur = Math.max(.01, duration());
+  clampView();
+
+  /* Keep the playhead in frame while it runs, but page rather than scroll:
+     a window that creeps under a moving playhead is unreadable. */
+  if(view.span !== null && transport.playing){
+    const span = viewSpan();
+    if(now < view.start + span*.04 || now > view.start + span*.92){
+      view.start = clamp(now - span*.3, 0, dur - span);
+    }
+  }
+
   tctx.clearRect(0,0,TW,TH);
   tctx.fillStyle = '#171B28'; tctx.fillRect(0,0,TW,TH);
 
@@ -1859,7 +1914,8 @@ function drawTimeline(now){
     tctx.fillStyle = '#2C3348';
     const n = state.peaks.length;
     for(let x=0;x<TW;x++){
-      const v = state.peaks[Math.floor(x/TW*n)] || 0;
+      const i = Math.floor(x2t(x)/dur*n);
+      const v = (i >= 0 && i < n ? state.peaks[i] : 0) || 0;
       const h = Math.max(1, v*waveH);
       tctx.fillRect(x, waveH/2 + 2 - h/2, 1, h);
     }
@@ -1883,6 +1939,7 @@ function drawTimeline(now){
   const top = waveH + 5, h = TH - top - 4;
   state.lines.forEach((l,i) => {
     const x = t2x(l.t), w = Math.max(3, t2x(l.t + l.d) - x);
+    if(x > TW || x + w < 0) return;
     const on = i === state.sel;
     tctx.fillStyle = on ? '#FF4A17' : '#39405A';
     tctx.beginPath();
@@ -1900,9 +1957,18 @@ function drawTimeline(now){
   });
 
   const px = t2x(now);
-  tctx.fillStyle = '#F2EDE4'; tctx.fillRect(px-1, 0, 2, TH);
-  tctx.fillStyle = '#F2EDE4';
-  tctx.beginPath(); tctx.moveTo(px-5,0); tctx.lineTo(px+5,0); tctx.lineTo(px,7); tctx.fill();
+  if(px >= -6 && px <= TW+6){
+    tctx.fillStyle = '#F2EDE4'; tctx.fillRect(px-1, 0, 2, TH);
+    tctx.beginPath(); tctx.moveTo(px-5,0); tctx.lineTo(px+5,0); tctx.lineTo(px,7); tctx.fill();
+  }
+
+  /* Where this window sits in the whole track. Three pixels, but without it
+     a zoomed timeline is a map with no "you are here". */
+  if(view.span !== null){
+    tctx.fillStyle = 'rgba(0,0,0,.55)'; tctx.fillRect(0,0,TW,3);
+    tctx.fillStyle = '#FF4A17';
+    tctx.fillRect(view.start/dur*TW, 0, Math.max(8, view.span/dur*TW), 3);
+  }
 }
 
 let drag = null;
@@ -1923,11 +1989,29 @@ function tlHit(x, y, slop){
   return null;
 }
 
+/* Every live pointer on the timeline. One is a drag; two is a pinch, and a
+   pinch cancels whatever drag the first finger had started — otherwise
+   zooming would drag a card halfway across the track on the way. */
+const ptrs = new Map();
+let pinch = null;
+const localX = e => e.clientX - tlWrap.getBoundingClientRect().left;
+
 tlWrap.addEventListener('pointerdown', e => {
   const r = tlWrap.getBoundingClientRect();
   const x = e.clientX - r.left, y = e.clientY - r.top;
-  const hit = tlHit(x, y, e.pointerType === 'mouse' ? 2 : 11);
+  ptrs.set(e.pointerId, x);
   try{ tlWrap.setPointerCapture(e.pointerId); }catch(err){}
+
+  if(ptrs.size === 2){
+    const [a,b] = [...ptrs.values()];
+    if(drag && drag.mode !== 'seek') undo();     // unwind the half-started drag
+    drag = null;
+    pinch = {d0:Math.max(12, Math.abs(a-b)), span0:viewSpan(), t0:x2t((a+b)/2)};
+    return;
+  }
+  if(ptrs.size > 2) return;
+
+  const hit = tlHit(x, y, e.pointerType === 'mouse' ? 2 : 11);
   if(hit){
     state.sel = hit.i;
     pushHistory();
@@ -1941,9 +2025,23 @@ tlWrap.addEventListener('pointerdown', e => {
 });
 
 tlWrap.addEventListener('pointermove', e => {
+  if(!ptrs.has(e.pointerId)) return;
+  const x = localX(e);
+  ptrs.set(e.pointerId, x);
+
+  if(pinch && ptrs.size >= 2){
+    const [a,b] = [...ptrs.values()];
+    const d = Math.max(12, Math.abs(a-b));
+    const dur = Math.max(.01, duration());
+    const span = clamp(pinch.span0 * pinch.d0/d, MINSPAN, dur);
+    if(span >= dur){ fitView(); return; }
+    view.span = span;
+    view.start = pinch.t0 - ((a+b)/2/TW)*span;   // hold the time between the fingers
+    clampView();
+    return;
+  }
+
   if(!drag) return;
-  const r = tlWrap.getBoundingClientRect();
-  const x = e.clientX - r.left;
   if(drag.mode === 'seek'){ transport.seek(x2t(x)); return; }
   const dt = x2t(x) - x2t(drag.x0);
   const l = state.lines[drag.i];
@@ -1951,12 +2049,33 @@ tlWrap.addEventListener('pointermove', e => {
   else l.d = Math.max(.12, snapT(drag.t0 + drag.d0 + dt) - l.t);
 });
 
-const endDrag = () => {
+const endDrag = e => {
+  if(e && e.pointerId !== undefined) ptrs.delete(e.pointerId);
+  if(ptrs.size < 2) pinch = null;
+  if(ptrs.size) return;                          // fingers still down
   if(drag && drag.mode !== 'seek'){ state.lines.sort((a,b) => a.t - b.t); syncScript(); }
   drag = null;
 };
 tlWrap.addEventListener('pointerup', endDrag);
 tlWrap.addEventListener('pointercancel', endDrag);
+
+/* Wheel zooms about the cursor. A trackpad pinch arrives here as ctrl+wheel,
+   which is the same gesture and wants the same answer. */
+tlWrap.addEventListener('wheel', e => {
+  if(!duration()) return;
+  e.preventDefault();
+  const x = localX(e);
+  if(e.shiftKey && !e.ctrlKey){                  // shift-wheel pans instead
+    if(view.span === null) return;
+    view.start += (e.deltaY || e.deltaX)/TW * viewSpan();
+    clampView();
+    return;
+  }
+  zoomAt(x2t(x), Math.exp((e.deltaY || 0) * .0016));
+}, {passive:false});
+
+/* Double-tap or double-click the timeline to go back to the whole track. */
+tlWrap.addEventListener('dblclick', () => fitView());
 
 function snapT(t){
   if(!state.snap || !state.beats.length) return t;
@@ -1979,11 +2098,13 @@ function undo(){
 function syncScript(){
   $('script').value = serialise();
   state.timed = true;
+  markDirty();
   paintRows();
   refreshDiag();
 }
 
 function applyScript(quiet){
+  markDirty();
   const {lines, timed} = parseScript($('script').value);
   state.lines = lines;
   state.timed = timed;
@@ -2330,6 +2451,64 @@ function loadBlob(j){
   DIAG.say('Loaded "' + (j.name || 'untitled') + '". Re-attach the track and the plates.', 's-ok');
 }
 
+/* ------------------------------------------------------------- autosave
+   Nothing here lives on a server, so the only copy of an edit is this tab.
+   iOS evicts a backgrounded tab whenever it feels like it, and a phone is
+   backgrounded constantly — you switch apps to find the lyrics and come back
+   to an empty deck. So: write the project blob on a lazy timer and on the way
+   out, and offer it back on the next boot rather than silently applying it,
+   because silently replacing what someone just typed is worse than losing it.
+   Media is still not covered; blobs do not fit in localStorage. */
+const AKEY = 'kt.autosave';
+let autoDirty = false, autoAt = 0;
+
+const readAuto = () => { try{ return JSON.parse(localStorage.getItem(AKEY) || 'null'); }catch(e){ return null; } };
+
+function writeAuto(){
+  if(!state.lines.length) return;
+  try{
+    localStorage.setItem(AKEY, JSON.stringify(Object.assign(projectBlob(), {at:Date.now()})));
+    autoDirty = false; autoAt = performance.now();
+  }catch(e){ /* quota or private mode: the explicit Save still reports it */ }
+}
+const markDirty = () => { autoDirty = true; };
+
+/* Lazy: at most one write every 4s while something is changing, so typing a
+   script does not serialise the whole project on every keystroke. */
+setInterval(() => { if(autoDirty && performance.now() - autoAt > 4000) writeAuto(); }, 1500);
+
+/* The moments a tab actually dies. pagehide is the one that fires on iOS;
+   beforeunload does not, reliably. */
+addEventListener('pagehide', () => { if(autoDirty) writeAuto(); });
+document.addEventListener('visibilitychange', () => {
+  if(document.visibilityState === 'hidden' && autoDirty) writeAuto();
+});
+
+function ago(ms){
+  const m = Math.round((Date.now() - ms)/60000);
+  if(m < 1) return 'a moment ago';
+  if(m < 60) return m + ' minute' + (m>1?'s':'') + ' ago';
+  const h = Math.round(m/60);
+  return h < 24 ? h + ' hour' + (h>1?'s':'') + ' ago' : Math.round(h/24) + ' day' + (h>24?'s':'') + ' ago';
+}
+
+function offerRestore(){
+  const j = readAuto();
+  if(!j || !j.script || !j.script.trim()) return;
+  if(j.script.trim() === $('script').value.trim()) return;   // that is what is already here
+  $('restorewhen').textContent = j.at ? ago(j.at) : 'earlier';
+  $('restorebar').classList.add('on');
+  $('restoreyes').onclick = () => {
+    loadBlob(j);
+    $('restorebar').classList.remove('on');
+    DIAG.say('Restored the edit from ' + (j.at ? ago(j.at) : 'earlier') + '. The track and the plates are not in there — re-attach them.', 's-ok');
+  };
+  $('restoreno').onclick = () => {
+    try{ localStorage.removeItem(AKEY); }catch(e){}
+    $('restorebar').classList.remove('on');
+  };
+}
+
 function listProjects(){
   const p = readProjects(), sel = $('pslots');
   sel.replaceChildren();
@@ -2523,9 +2702,11 @@ $('audiofile').addEventListener('change', async e => {
   DIAG.set('d-audio', f.name.length > 26 ? f.name.slice(0,24) + '…' : f.name, 's-ok');
   DIAG.say('Decoding ' + f.name + ' …');
   state.peaks = null; state.beats = []; state.bpm = 0;
+  fitView();
   refreshDiag();
 });
 $('dropaudio').onclick = () => {
+  fitView();
   if(audio.src) URL.revokeObjectURL(audio.src);
   audio.removeAttribute('src'); audio.load();
   state.file = null; state.peaks = null; state.beats = []; state.bpm = 0;
@@ -2683,15 +2864,22 @@ $('diagtoggle').onclick = () => {
   $('diagcaret').textContent = open ? '▾' : '▸';
 };
 
+/* Every control in the panel funnels through here rather than each handler
+   remembering to flag itself. */
+['input','change','click'].forEach(k =>
+  document.querySelector('.right').addEventListener(k, markDirty, {passive:true}));
+
 $('undo').onclick = undo;
 $('help').onclick = () => DIAG.say(COARSE
   ? 'Touch: Tap to time arms the timer — then tap the picture once per card.\n' +
     'Undo tap takes the last one back, Done stops. ⤢ grows or shrinks the preview.\n' +
-    'Drag a timeline block to move it, drag its right edge to stretch it.\n' +
+    'Pinch the timeline to zoom in on a section, double-tap it to see the whole track.\n' +
+    'Drag a block to move it, drag its right edge to stretch it.\n' +
     'Under Lines, ◀ −50ms and +50ms ▶ nudge the selected card.'
   : 'Space play/pause · ←/→ seek 1s (Shift 5s) · ,/. step one frame\n' +
     'T arm or fire a tap · Z take back the last tap · Esc stop tapping\n' +
     '[ / ] nudge the selected card 50ms · G safe guides · Ctrl+Z undo\n' +
+    '- / = zoom the timeline · 0 fits the whole track · wheel zooms, shift-wheel pans\n' +
     'Click a timeline block to select and seek; drag it to move, drag its right edge to stretch.');
 
 /* ---- keyboard ---- */
@@ -2710,6 +2898,9 @@ addEventListener('keydown', e => {
     case '[': nudge(-0.05); break;
     case ']': nudge(0.05); break;
     case 'g': case 'G': S.guides = !S.guides; $('guidechip').classList.toggle('on', S.guides); break;
+    case '-': case '_': zoomAt(transport.time, 1.6); break;
+    case '=': case '+': zoomAt(transport.time, 1/1.6); break;
+    case '0': fitView(); break;
     case 'Escape': if(TAP.on) endTap('Tap mode off.'); break;
   }
 });
@@ -2785,6 +2976,9 @@ if(!HAS_TRACKING) DIAG.set('d-font', 'no canvas tracking', 's-warn');
 if(COARSE){
   DIAG.say('Touch: ⤢ grows the preview. Paste lyrics under Lines, then arm Tap to time and tap the picture once per card.', '');
 }
+
+offerRestore();
+autoDirty = false;                 // the placeholder deck is not worth saving
 
 requestAnimationFrame(frame);
 </script>

@@ -133,6 +133,22 @@ Or just the words, and let the timing come later. `start | duration | text`.
 Then fix it on the timeline: drag a block to move it, drag its right edge to
 stretch it, `[` and `]` nudge 50 ms.
 
+### Zooming the timeline
+
+A three minute song across a 370px phone gives a 2.4s card under five pixels
+of width — not something you can select, let alone drag. So the timeline shows
+a window onto the track rather than always the whole of it:
+
+- **pinch** to zoom, or roll the **wheel**; both zoom about the point under
+  your fingers, so whatever you were looking at stays put
+- **shift-wheel** pans, and `-` / `=` zoom from the keyboard
+- **double-tap or double-click**, or press `0`, to fit the whole track again
+- while a zoomed track plays, the window pages along to keep the playhead in
+  frame, and a three-pixel bar along the top shows where you are in the track
+
+Starting a pinch cancels whatever drag the first finger had begun, so zooming
+never leaves a card dragged halfway across the song.
+
 ## Export
 
 WebM (VP9 + Opus) where the browser has it, MP4 (H.264 + AAC) on Safari and
@@ -172,6 +188,21 @@ pad, `↶ Undo tap` and `Done` stand in for `Z` and `Esc`, and `◀ −50ms` /
 
 Look and timings go to `localStorage`; media does not. Export a `.json` to move
 an edit between machines, then re-attach the track and the plates.
+
+### Autosave
+
+Nothing here touches a server, so the only copy of an edit is the tab it is in
+— and iOS evicts a backgrounded tab whenever it feels like it. Switch apps to
+find the lyrics, come back, and the deck is empty.
+
+So the project blob is written to `localStorage` on a lazy timer and again on
+`pagehide` and on the way to the background. On the next boot, if there is an
+edit there that is not what is already on screen, a bar offers it back —
+**Restore** or **Discard**. It is never applied silently: quietly replacing
+what somebody just typed is worse than losing it.
+
+Same caveat as a saved edit: the look and the timings come back, the media
+does not.
 
 ## The diagnostics panel
 
