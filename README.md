@@ -207,15 +207,43 @@ never leaves a card dragged halfway across the song.
 
 ## Export
 
-WebM (VP9 + Opus) where the browser has it, MP4 (H.264 + AAC) on Safari and
-iOS — the app picks the best codec the browser admits to and names the file
-to match. Up to 16 Mbps, recorded in real time at full resolution regardless
-of the preview quality setting. Keep the tab in front — a
-backgrounded tab throttles `requestAnimationFrame` and the render stutters.
+Two ways out, and the first is the default.
+
+**Offline render** draws every frame on demand and hands it straight to a
+`VideoEncoder`. No clock is involved, so no frame can be dropped, and the tab
+can sit in the background while it works — go do something else. This is what
+`render(t)` being a pure function from time to pixels was always for.
+
+Speed depends on the machine. A hardware VP9 encoder beats real time
+comfortably; software VP9 at 1080×1920 is roughly level with it — measured at
+1.1× on a CPU-only box, where drawing the frames took 17ms of 3.3s and the
+encoder took the rest. It asks for hardware first. The panel reports which one
+it got and how fast it went, so you learn what your machine does.
+
+The container is muxed here, longhand, in about 150 lines of EBML. Export is
+the one button everything else leads to; it is not allowed to break because
+somebody's network blocks a script host. That risk is worth taking for an
+opt-in extra like transcription and not for this.
+
+**Real-time recording** is still there behind the toggle, and it is the right
+choice in one case: when the sound is coming from tab capture or the mic.
+Only a loaded file can be re-read offline, so an offline render of a
+tab-captured edit would be silent. Real time uses `MediaRecorder` — WebM
+(VP9 + Opus) where the browser has it, MP4 (H.264 + AAC) on Safari and iOS.
+
+Either way: up to 16 Mbps, full resolution regardless of the preview quality
+setting.
 
 ```sh
 ffmpeg -i edit.webm -c:v libx264 -crf 18 -pix_fmt yuv420p edit.mp4
 ```
+
+Two things the offline path gets right that filming the preview cannot. Video
+plates are **seeked** to the instant being drawn rather than left wherever
+they happened to be playing. And beat pulse and shake read an envelope
+measured off the decoded audio, so the motion the preview promised is the
+motion in the file — there is no live meter running during an offline render
+to read instead.
 
 A cross-origin image taints the canvas and the browser then refuses to hand
 over its pixels, which kills recording *and* stills. Spotify cover art is the

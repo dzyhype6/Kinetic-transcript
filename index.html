@@ -145,6 +145,7 @@
   .chip:hover{color:var(--bone);border-color:var(--line-2)}
   .chip.on{background:var(--bone);border-color:var(--bone);color:var(--ink)}
   .chip.on.hot{background:var(--hot);border-color:var(--hot);color:#180702}
+  .chip.off{opacity:.4;pointer-events:none}
 
   /* ---------- line editor rows ---------- */
   .lines{display:flex;flex-direction:column;gap:4px;max-height:340px;overflow-y:auto;overscroll-behavior:contain;padding-right:2px}
@@ -747,8 +748,15 @@
 
       <div class="grp">
         <h4>Render</h4>
-        <button id="rec" class="primary" disabled>● Record range</button>
-        <p class="hint">Recording runs in real time — a 30 second edit takes 30 seconds. Keep this tab in front; a backgrounded tab throttles the frame clock. Output is WebM (VP9 + Opus), which Premiere, Resolve, CapCut and every social uploader accept. <code>ffmpeg -i edit.webm -c:v libx264 -crf 18 edit.mp4</code> if you need H.264.</p>
+        <div class="r">
+          <span class="chip on hot" id="offchip">Offline render</span>
+          <span class="lab" style="align-items:center" id="offhint">frame-exact, runs unattended</span>
+        </div>
+        <button id="rec" class="primary" disabled>⚡ Render range</button>
+        <button id="reccancel" class="sm" hidden>Stop</button>
+        <div class="fld"><span class="lab">Progress <b id="v-render">—</b></span>
+          <input type="range" id="renderbar" min="0" max="100" value="0" disabled></div>
+        <p class="hint" id="rechint">Offline render draws every frame on demand and hands it straight to the encoder. Nothing is filmed off a clock, so <b>no frame is ever dropped</b> and you can leave the tab in the background or work in another window while it runs. Speed depends on the machine: a hardware VP9 encoder beats real time comfortably, software VP9 at 1080×1920 is roughly level with it. Switch it off to record in real time instead — which is what you want when the sound is coming from tab capture or the mic, since only a loaded file can be re-read offline. Output is WebM (VP9 + Opus): Premiere, Resolve, CapCut and every social uploader take it. <code>ffmpeg -i edit.webm -c:v libx264 -crf 18 edit.mp4</code> if you need H.264.</p>
         <div class="r">
           <button id="png" class="wide">Save this frame</button>
           <button id="sheet" class="wide">Contact sheet</button>
@@ -934,7 +942,7 @@ const DEFAULTS = {
   bgmode:'single', every:4, fade:.3, fit:'cover',
   kb:'none', kbamt:14, pulse:0, shake:0,
   grade:'none', expo:100, contr:100, sat:100, iblur:0, ctint:'#1433C4', tintamt:0, vig:45, grain:16, cbg:'#1433C4',
-  clocksrc:"auto", ratio:"9:16", fps:30, vbr:8, guides:false, quality:1,
+  clocksrc:"auto", ratio:"9:16", fps:30, vbr:8, guides:false, quality:1, offline:true,
   spoff:0
 };
 
@@ -2901,6 +2909,147 @@ function setRatio(key){
    records has it. Safari — which is to say every browser on an iPhone — has no
    WebM muxer at all and records fragmented MP4 instead, so the H.264 rungs
    below are what make the export work on a phone. */
+/* =============================================================== webm muxer
+   Written out longhand rather than pulled from a CDN. Export is the point of
+   the app — it is not allowed to stop working because somebody's network
+   blocks a script host, which is a risk worth taking for an opt-in extra like
+   transcription and not for the one button everything else leads to.
+
+   Matroska is elements all the way down: an id, a length as a variable-width
+   integer, then the payload. Everything is buffered and the lengths written
+   once they are known, which is simpler and safer than backfilling, and costs
+   nothing here because a finished render is in memory anyway. */
+const EBML = {
+  /* Lengths carry their own width: the position of the first set bit says how
+     many bytes to read. 7 usable bits per byte, and the all-ones value of each
+     width is reserved for "unknown", hence < rather than <=. */
+  vint(n){
+    for(let w = 1; w <= 8; w++){
+      const max = Math.pow(2, 7*w) - 1;
+      if(n < max){
+        const out = new Uint8Array(w);
+        let v = n;
+        for(let i = w-1; i >= 0; i--){ out[i] = v & 0xFF; v = Math.floor(v/256); }
+        out[0] |= 1 << (8 - w);
+        return out;
+      }
+    }
+    throw new Error('element too large to describe');
+  },
+
+  cat(parts){
+    let n = 0;
+    for(const p of parts) n += p.length;
+    const out = new Uint8Array(n);
+    let at = 0;
+    for(const p of parts){ out.set(p, at); at += p.length; }
+    return out;
+  },
+
+  el(id, payload){
+    return EBML.cat([new Uint8Array(id), EBML.vint(payload.length), payload]);
+  },
+
+  uintVal(v){
+    const b = [];
+    let x = Math.max(0, Math.round(v));
+    do { b.unshift(x & 0xFF); x = Math.floor(x/256); } while(x > 0);
+    return new Uint8Array(b);
+  },
+  uint(id, v){ return EBML.el(id, EBML.uintVal(v)); },
+  float(id, v){ const b = new Uint8Array(8); new DataView(b.buffer).setFloat64(0, v); return EBML.el(id, b); },
+  str(id, t){ return EBML.el(id, new TextEncoder().encode(t)); },
+  master(id, parts){ return EBML.el(id, EBML.cat(parts)); }
+};
+
+const MKV = {
+  EBML:[0x1A,0x45,0xDF,0xA3], EBMLVersion:[0x42,0x86], EBMLReadVersion:[0x42,0xF7],
+  EBMLMaxIDLength:[0x42,0xF2], EBMLMaxSizeLength:[0x42,0xF3],
+  DocType:[0x42,0x82], DocTypeVersion:[0x42,0x87], DocTypeReadVersion:[0x42,0x85],
+  Segment:[0x18,0x53,0x80,0x67],
+  Info:[0x15,0x49,0xA9,0x66], TimecodeScale:[0x2A,0xD7,0xB1], Duration:[0x44,0x89],
+  MuxingApp:[0x4D,0x80], WritingApp:[0x57,0x41],
+  Tracks:[0x16,0x54,0xAE,0x6B], TrackEntry:[0xAE], TrackNumber:[0xD7], TrackUID:[0x73,0xC5],
+  TrackType:[0x83], CodecID:[0x86], CodecPrivate:[0x63,0xA2], FlagLacing:[0x9C],
+  CodecDelay:[0x56,0xAA], SeekPreRoll:[0x56,0xBB], DefaultDuration:[0x23,0xE3,0x83],
+  Video:[0xE0], PixelWidth:[0xB0], PixelHeight:[0xBA],
+  Audio:[0xE1], SamplingFrequency:[0xB5], Channels:[0x9F],
+  Cluster:[0x1F,0x43,0xB6,0x75], Timecode:[0xE7], SimpleBlock:[0xA3]
+};
+
+/* A block's timecode is relative to its cluster and signed 16-bit, so a
+   cluster cannot span more than ~32s. Keyframes open a new one anyway, which
+   is also what makes the result seekable. */
+function simpleBlock(track, relMs, key, data){
+  const head = EBML.cat([
+    EBML.vint(track),
+    (() => { const b = new Uint8Array(2); new DataView(b.buffer).setInt16(0, relMs); return b; })(),
+    new Uint8Array([key ? 0x80 : 0x00])
+  ]);
+  return EBML.el(MKV.SimpleBlock, EBML.cat([head, data]));
+}
+
+/* blocks: [{track, t (ms), key, data}] in any order; video track is 1. */
+function muxWebM(opt){
+  const blocks = opt.blocks.slice().sort((a,b) => a.t - b.t || a.track - b.track);
+
+  const header = EBML.master(MKV.EBML, [
+    EBML.uint(MKV.EBMLVersion, 1), EBML.uint(MKV.EBMLReadVersion, 1),
+    EBML.uint(MKV.EBMLMaxIDLength, 4), EBML.uint(MKV.EBMLMaxSizeLength, 8),
+    EBML.str(MKV.DocType, 'webm'), EBML.uint(MKV.DocTypeVersion, 2), EBML.uint(MKV.DocTypeReadVersion, 2)
+  ]);
+
+  const info = EBML.master(MKV.Info, [
+    EBML.uint(MKV.TimecodeScale, 1e6),                 // one tick = 1ms
+    EBML.float(MKV.Duration, Math.max(1, opt.durationMs)),
+    EBML.str(MKV.MuxingApp, 'kinetic-type'), EBML.str(MKV.WritingApp, 'kinetic-type')
+  ]);
+
+  const entries = [EBML.master(MKV.TrackEntry, [
+    EBML.uint(MKV.TrackNumber, 1), EBML.uint(MKV.TrackUID, 1), EBML.uint(MKV.TrackType, 1),
+    EBML.uint(MKV.FlagLacing, 0), EBML.str(MKV.CodecID, opt.videoCodec || 'V_VP9'),
+    EBML.uint(MKV.DefaultDuration, Math.round(1e9/opt.fps)),
+    EBML.master(MKV.Video, [EBML.uint(MKV.PixelWidth, opt.width), EBML.uint(MKV.PixelHeight, opt.height)])
+  ])];
+
+  if(opt.audio){
+    /* Pre-skip lives in OpusHead at byte 10, little endian. A decoder needs it
+       as CodecDelay or the track starts 80ms out of step with the picture. */
+    const head = opt.audio.head;
+    const preSkip = head && head.length >= 12 ? (head[10] | (head[11] << 8)) : 3840;
+    const delayNs = Math.round(preSkip/48000*1e9);
+    entries.push(EBML.master(MKV.TrackEntry, [
+      EBML.uint(MKV.TrackNumber, 2), EBML.uint(MKV.TrackUID, 2), EBML.uint(MKV.TrackType, 2),
+      EBML.uint(MKV.FlagLacing, 0), EBML.str(MKV.CodecID, 'A_OPUS'),
+      EBML.el(MKV.CodecPrivate, head),
+      EBML.uint(MKV.CodecDelay, delayNs),
+      EBML.uint(MKV.SeekPreRoll, 80000000),
+      EBML.master(MKV.Audio, [
+        EBML.float(MKV.SamplingFrequency, 48000),
+        EBML.uint(MKV.Channels, opt.audio.channels)
+      ])
+    ]));
+  }
+  const tracks = EBML.master(MKV.Tracks, entries);
+
+  const clusters = [];
+  let cur = null, base = 0;
+  const flush = () => { if(cur && cur.length) clusters.push(EBML.master(MKV.Cluster, [EBML.uint(MKV.Timecode, base)].concat(cur))); };
+
+  for(const b of blocks){
+    const keyframe = b.track === 1 && b.key;
+    if(!cur || (keyframe && cur.length) || b.t - base > 30000){
+      flush();
+      cur = []; base = b.t;
+    }
+    cur.push(simpleBlock(b.track, b.t - base, b.key, b.data));
+  }
+  flush();
+
+  const segment = EBML.master(MKV.Segment, [info, tracks].concat(clusters));
+  return new Blob([EBML.cat([header, segment])], {type:'video/webm'});
+}
+
 function pickMime(){
   const want = [
     'video/webm;codecs=vp9,opus',
@@ -2916,6 +3065,204 @@ function pickMime(){
   return '';
 }
 const extFor = mime => /mp4/.test(mime) ? '.mp4' : '.webm';
+
+/* ============================================================ offline render
+   Recording plays the edit and films the screen, which means a three minute
+   track costs three minutes, the tab has to stay in front, and any frame the
+   machine drops is dropped in the file for good.
+
+   Nothing about this app needs that. render(t) has been a pure function from
+   time to pixels since the rewrite — so the frames can be produced as fast as
+   the encoder will take them, exactly one per frame interval, with no clock
+   involved at all. That is the whole reason it renders to canvas. */
+const OFF = {busy:false, cancel:false, accel:null};
+
+/* An offline frame is drawn on demand, so a video plate sitting at whatever
+   position it happened to be playing is wrong. Seek it to where this instant
+   of the edit says it should be. */
+function seekPlate(el, into){
+  if(!el.duration || !Number.isFinite(el.duration)) return Promise.resolve();
+  if(!el.paused) el.pause();
+  const want = Math.max(0, into % el.duration);
+  if(Math.abs(el.currentTime - want) < .004) return Promise.resolve();
+  return new Promise(res => {
+    let done = false;
+    const fin = () => { if(done) return; done = true; el.removeEventListener('seeked', fin); res(); };
+    el.addEventListener('seeked', fin);
+    try{ el.currentTime = want; }catch(e){ return fin(); }
+    setTimeout(fin, 150);            // a plate that will not seek must not stall the render
+  });
+}
+
+async function seekPlatesFor(t){
+  if(!media.some(m => m.kind === 'vid')) return;
+  const plan = plateAt(t);
+  if(!plan) return;
+  const want = [plan.cur];
+  if(plan.fadeIn < 1 && media.length > 1){
+    want.push(media[((plan.idx - 1) % media.length + media.length) % media.length]);
+  }
+  await Promise.all(want.filter(m => m && m.kind === 'vid').map(m => seekPlate(m.el, t - plan.start)));
+}
+
+/* Beat pulse and shake read AUD.level, which is fed by the live analyser —
+   and there is no live anything here. So the envelope is measured off the
+   decoded audio instead, which makes an offline render match the preview
+   rather than quietly dropping the motion the preview promised. */
+function envelopeOf(pcm, rate){
+  const hop = 512, n = Math.floor(pcm.length/hop);
+  const env = new Float32Array(n);
+  let peak = 1e-6;
+  for(let i=0;i<n;i++){
+    let sum = 0;
+    for(let j=0;j<hop;j++){ const v = pcm[i*hop+j]; sum += v*v; }
+    env[i] = Math.sqrt(sum/hop);
+    if(env[i] > peak) peak = env[i];
+  }
+  for(let i=0;i<n;i++) env[i] /= peak;       // the live meter is normalised too
+  return {env, rate: rate/hop};
+}
+
+/* 48k is what Opus wants, and what the envelope is measured against. */
+async function decodeSliceForExport(file, from, to){
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if(!AC) return null;
+  const ac = new AC();
+  let buf;
+  try{ buf = await ac.decodeAudioData(await file.arrayBuffer()); }
+  catch(e){ ac.close(); return null; }
+  ac.close();
+
+  const RATE = 48000;
+  const ch = Math.min(2, buf.numberOfChannels) || 1;
+  const len = Math.max(1, Math.round((to - from)*RATE));
+  const off = new OfflineAudioContext(ch, len, RATE);
+  const src = off.createBufferSource();
+  src.buffer = buf;
+  src.connect(off.destination);
+  src.start(0, Math.max(0, from), Math.max(.01, to - from));
+  const out = await off.startRendering();
+
+  const channels = [];
+  for(let c=0;c<ch;c++) channels.push(out.getChannelData(c));
+  return {channels, rate:RATE, frames:out.length};
+}
+
+/* VP9 only. VP8 is available almost everywhere VP9 is, and measuring it made
+   the case against: software VP8 at 1080x1920 ran at 0.14x real time here
+   against VP9's 0.9x — six times slower, for a worse file. A machine without
+   VP9 is better served by real-time recording than by a fallback that turns a
+   three minute song into twenty. */
+const offlineCodec = () => (window.VideoEncoder && window.VideoFrame) ? 'vp09.00.10.08' : null;
+
+async function renderOffline(from, to, onProgress){
+  const fps = S.fps;
+  const total = Math.max(1, Math.round((to - from)*fps));
+  const blocks = [];
+  const vcodec = offlineCodec();
+
+  /* Settle the configuration before drawing a single frame, so an encoder that
+     will not take this size is a message rather than a minute of wasted work.
+     Hardware first: it is the difference between comfortably faster than real
+     time and roughly level with it. */
+  let chosen = null, failed = null;
+  for(const hw of ['prefer-hardware', 'no-preference']){
+    const cfg = {codec:vcodec, width:DW, height:DH, bitrate:S.vbr*1e6, framerate:fps,
+                 latencyMode:'quality', hardwareAcceleration:hw};
+    try{
+      const probe = await VideoEncoder.isConfigSupported(cfg);
+      if(probe.supported){ chosen = probe.config || cfg; OFF.accel = hw; break; }
+    }catch(e){ failed = e; }
+  }
+  if(!chosen) throw new Error('no VP9 encoder here would take ' + DW + '×' + DH + (failed ? ': ' + failed.message : ''));
+
+  const venc = new VideoEncoder({
+    output: chunk => {
+      const d = new Uint8Array(chunk.byteLength);
+      chunk.copyTo(d);
+      blocks.push({track:1, t:Math.round(chunk.timestamp/1000), key:chunk.type === 'key', data:d});
+    },
+    error: e => { throw e; }
+  });
+  venc.configure(chosen);
+
+  /* --- audio, if there is a decodable file behind the edit --- */
+  let audio = null, levelAt = () => 0;
+  const slice = state.file ? await decodeSliceForExport(state.file, from, to) : null;
+  if(slice){
+    const {env, rate:erate} = envelopeOf(slice.channels[0], slice.rate);
+    levelAt = rel => env[clamp(Math.floor(rel*erate), 0, env.length-1)] || 0;
+
+    let head = null;
+    const aenc = new AudioEncoder({
+      output: (chunk, meta) => {
+        if(meta && meta.decoderConfig && meta.decoderConfig.description && !head) head = new Uint8Array(meta.decoderConfig.description);
+        const d = new Uint8Array(chunk.byteLength);
+        chunk.copyTo(d);
+        blocks.push({track:2, t:Math.round(chunk.timestamp/1000), key:true, data:d});
+      },
+      error: e => { throw e; }
+    });
+    const ch = slice.channels.length;
+    aenc.configure({codec:'opus', sampleRate:slice.rate, numberOfChannels:ch, bitrate:128000});
+
+    const step = slice.rate/2;                       // half a second at a time
+    for(let at=0; at<slice.frames; at+=step){
+      const n = Math.min(step, slice.frames - at);
+      const flat = new Float32Array(n*ch);           // f32-planar: each channel end to end
+      for(let c=0;c<ch;c++) flat.set(slice.channels[c].subarray(at, at+n), c*n);
+      aenc.encode(new AudioData({
+        format:'f32-planar', sampleRate:slice.rate, numberOfFrames:n,
+        numberOfChannels:ch, timestamp:Math.round(at/slice.rate*1e6), data:flat
+      }));
+      while(aenc.encodeQueueSize > 8) await new Promise(r => setTimeout(r, 1));
+    }
+    await aenc.flush();
+    aenc.close();
+    audio = {head: head || new Uint8Array(0), channels: ch};
+  }
+
+  /* --- the frames --- */
+  const liveLevel = AUD.level;
+  const gap = Math.max(1, Math.round(fps*2));        // a keyframe every two seconds
+  for(let n=0; n<total; n++){
+    if(OFF.cancel) break;
+    const rel = n/fps, t = from + rel;
+    AUD.level = levelAt(rel);                        // so pulse and shake match the preview
+    await seekPlatesFor(t);
+    render(t);
+    const frame = new VideoFrame(canvas, {timestamp:Math.round(rel*1e6), duration:Math.round(1e6/fps)});
+    venc.encode(frame, {keyFrame: n % gap === 0});
+    frame.close();
+    while(venc.encodeQueueSize > 8) await new Promise(r => setTimeout(r, 1));
+    if(n % 6 === 0){
+      onProgress(n/total, n);
+      await new Promise(r => setTimeout(r, 0));      // let the page breathe
+    }
+  }
+  AUD.level = liveLevel;
+  await venc.flush();
+  venc.close();
+
+  const vblocks = blocks.filter(b => b.track === 1);
+  if(!vblocks.length) throw new Error('the encoder produced no frames');
+
+  /* Measured, not requested. Stopping early used to leave the header claiming
+     the full span, so a nine second file held half a second of video and every
+     player believed the header. */
+  const lastMs = vblocks.reduce((m,b) => Math.max(m, b.t), 0) + Math.round(1000/fps);
+  if(OFF.cancel){
+    /* Audio was encoded up front, so trim what runs past the last frame kept. */
+    for(let i = blocks.length-1; i >= 0; i--) if(blocks[i].track === 2 && blocks[i].t > lastMs) blocks.splice(i, 1);
+  }
+
+  onProgress(1, total);
+  return {
+    blob: muxWebM({blocks, durationMs: lastMs, width: DW, height: DH, fps, videoCodec:'V_VP9', audio}),
+    seconds: lastMs/1000,
+    frames: vblocks.length
+  };
+}
 
 let recorder = null, recChunks = [], recStop = null;
 
@@ -3266,7 +3613,10 @@ function frame(){
     if(t >= to - 1/S.fps) stopRecord();
   }
 
-  render(t);
+  /* The offline exporter owns the canvas while it runs — one more render(t)
+     from here between its draw and its capture and the file gets a frame from
+     the wrong instant. */
+  if(!OFF.busy) render(t);
   drawTimeline(t);
 
   const i = lineAt(t);
@@ -3547,7 +3897,77 @@ document.addEventListener('dragover', e => e.preventDefault());
 document.addEventListener('drop', e => e.preventDefault());
 
 /* ---- export ---- */
-$('rec').onclick   = () => state.recording ? stopRecord() : startRecord();
+function paintRenderUi(frac, note){
+  const live = OFF.busy || state.recording;
+  $('offchip').classList.toggle('off', live);
+  $('reccancel').hidden = !OFF.busy;
+  if(frac !== undefined) $('renderbar').value = Math.round(clamp(frac,0,1)*100);
+  if(note !== undefined) $('v-render').textContent = note;
+  if(!live) $('rec').textContent = S.offline && offlineCodec() ? '⚡ Render range' : '● Record range';
+}
+
+async function startOffline(){
+  if(state.tainted){
+    DIAG.say('Cannot render: a cross-origin plate has tainted the canvas, so the browser will not release its pixels. Swap the remote artwork for a local copy.', 's-bad');
+    return;
+  }
+  const from = state.inPt, to = state.outPt !== null ? state.outPt : duration();
+  if(!(to - from > .2)){ DIAG.say('The in and out points are on top of each other. Widen the range or press Whole.', 's-bad'); return; }
+
+  OFF.busy = true; OFF.cancel = false;
+  state.recording = true;                 // full resolution regardless of the preview setting
+  setRatio(S.ratio);
+  $('rec').textContent = '■ Stop';
+  $('rec').classList.add('rec');
+  $('h-rec').hidden = false;
+  paintRenderUi(0, 'starting');
+
+  const began = performance.now();
+  try{
+    if(!state.file) DIAG.say('No local file behind this edit, so the render will be silent. Load the track under Audio, or switch Offline render off and record in real time to capture tab audio.', 's-warn');
+    const made = await renderOffline(from, to, (frac, n) => {
+      const secs = (performance.now() - began)/1000;
+      const rate = (n > 0 && secs > .4) ? (n/S.fps)/secs : 0;
+      paintRenderUi(frac, Math.round(frac*100) + '%' + (rate ? ' · ' + rate.toFixed(1) + '× real time' : ''));
+      DIAG.set('d-rec', Math.round(frac*100) + '%', 's-warn');
+    });
+    const took = (performance.now() - began)/1000;
+    const {blob, seconds, frames} = made;
+    const name = ($('pname').value.trim() || 'kinetic-edit').replace(/[^\w\- ]+/g,'').trim().replace(/\s+/g,'-') + '.webm';
+    download(blob, name);
+    DIAG.set('d-rec', (blob.size/1048576).toFixed(1) + ' MB', 's-ok');
+    DIAG.say((OFF.cancel ? 'Stopped early — kept ' : 'Rendered ') + seconds.toFixed(1) + 's to ' + name + ' — ' +
+      frames + ' frames, ' + (blob.size/1048576).toFixed(1) + ' MB, ' + took.toFixed(1) + 's on ' +
+      (OFF.accel === 'prefer-hardware' ? 'a hardware encoder' : 'the CPU') +
+      (took > .3 ? ' (' + (seconds/took).toFixed(1) + '× real time)' : '') + '.', 's-ok');
+  }catch(e){
+    DIAG.set('d-rec', 'failed', 's-bad');
+    DIAG.say('Offline render failed: ' + ((e && e.message) || e) + '\nSwitch Offline render off to record in real time instead.', 's-bad');
+  }finally{
+    OFF.busy = false; OFF.cancel = false;
+    state.recording = false;
+    setRatio(S.ratio);
+    $('rec').classList.remove('rec');
+    $('h-rec').hidden = true;
+    paintRenderUi(0, '—');
+  }
+}
+
+$('rec').onclick = () => {
+  if(OFF.busy){ OFF.cancel = true; DIAG.say('Stopping — the frames already encoded are kept.', 's-warn'); return; }
+  if(state.recording) return stopRecord();
+  if(S.offline && offlineCodec()) return startOffline();
+  startRecord();
+};
+$('reccancel').onclick = () => { OFF.cancel = true; };
+$('offchip').onclick = () => {
+  if(!offlineCodec()) return;
+  S.offline = !S.offline;
+  $('offchip').classList.toggle('on', S.offline);
+  $('offchip').classList.toggle('hot', S.offline);
+  $('offhint').textContent = S.offline ? 'frame-exact, runs unattended' : 'films the preview as it plays';
+  paintRenderUi();
+};
 $('png').onclick   = savePng;
 $('sheet').onclick = contactSheet;
 $('qualchip').onclick = e => { S.quality = S.quality >= 1 ? .55 : 1; e.target.classList.toggle('on', S.quality >= 1); e.target.textContent = S.quality >= 1 ? 'Full-res preview' : 'Fast preview'; setRatio(S.ratio); };
@@ -3643,8 +4063,19 @@ if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
   $('capmic').title = 'No microphone API here — a secure origin (https or localhost) is required.';
 }
 (() => {
-  const m = window.MediaRecorder ? pickMime() : '';
-  DIAG.set('d-rec', m ? m.split(';')[0].replace('video/','') + ' ready' : 'unavailable', m ? '' : 's-bad');
+  if(offlineCodec()){
+    DIAG.set('d-rec', 'webm · offline', 's-ok');
+  } else {
+    /* No WebCodecs: real-time recording is the only way out, so say so once
+       rather than letting somebody wonder why the fast option is missing. */
+    S.offline = false;
+    $('offchip').classList.remove('on','hot');
+    $('offchip').classList.add('off');
+    $('offhint').textContent = 'needs WebCodecs — not in this browser';
+    const m = window.MediaRecorder ? pickMime() : '';
+    DIAG.set('d-rec', m ? m.split(';')[0].replace('video/','') + ' · real time' : 'unavailable', m ? '' : 's-bad');
+  }
+  paintRenderUi(0, '—');
 })();
 
 /* A phone repainting 1080×1920 every frame spends its whole budget on the
